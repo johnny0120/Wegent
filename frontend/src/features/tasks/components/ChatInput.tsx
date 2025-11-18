@@ -131,31 +131,66 @@ export default function ChatInput({
       }
     }
 
-    // Handle Enter key for auto-indentation (only when Shift+Enter)
-    if (e.key === 'Enter' && e.shiftKey && !disabled && !isComposing) {
-      e.preventDefault();
+    // Handle Enter key for auto-indentation
+    if (e.key === 'Enter' && !disabled && !isComposing) {
+      // Desktop: Enter sends message, Shift+Enter creates new line
+      if (!isMobile && !e.shiftKey) {
+        e.preventDefault();
+        handleSendMessage();
+        return;
+      }
 
-      const textarea = e.target as HTMLTextAreaElement;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const value = textarea.value;
+      // Mobile: Enter creates new line with auto-indentation
+      // Desktop: Shift+Enter creates new line with auto-indentation
+      if (isMobile || e.shiftKey) {
+        e.preventDefault();
 
-      // Get the current line and its leading whitespace
-      const lines = value.substring(0, start).split('\n');
-      const currentLine = lines[lines.length - 1];
-      const leadingWhitespace = currentLine.match(/^\s*/)?.[0] || '';
+        const textarea = e.target as HTMLTextAreaElement;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const value = textarea.value;
 
-      // Insert new line with preserved indentation
-      const newValue = value.substring(0, start) + '\n' + leadingWhitespace + value.substring(end);
+        // Get the current line and its leading whitespace
+        const lines = value.substring(0, start).split('\n');
+        const currentLine = lines[lines.length - 1];
+        const leadingWhitespace = currentLine.match(/^\s*/)?.[0] || '';
 
-      setMessage(newValue);
+        // Insert new line with preserved indentation
+        const newValue = value.substring(0, start) + '\n' + leadingWhitespace + value.substring(end);
 
-      // Set cursor position after the inserted whitespace
-      setTimeout(() => {
-        textarea.selectionStart = start + 1 + leadingWhitespace.length;
-        textarea.selectionEnd = start + 1 + leadingWhitespace.length;
-      }, 0);
+        setMessage(newValue);
+
+        // Set cursor position after the inserted whitespace
+        setTimeout(() => {
+          textarea.selectionStart = start + 1 + leadingWhitespace.length;
+          textarea.selectionEnd = start + 1 + leadingWhitespace.length;
+        }, 0);
+        return;
+      }
     }
+  };
+
+  const handleInsertTab = () => {
+    if (disabled || isComposing) return;
+
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const value = textarea.value;
+
+    // Insert \t placeholder at cursor position
+    const newValue = value.substring(0, start) + '\t' + value.substring(end);
+
+    setMessage(newValue);
+
+    // Set cursor position after inserted tab
+    setTimeout(() => {
+      textarea.selectionStart = start + 1;
+      textarea.selectionEnd = start + 1;
+      textarea.focus();
+    }, 0);
   };
 
   // Auto-focus on mount
@@ -184,6 +219,18 @@ export default function ChatInput({
         maxRows={isMobile ? 6 : 8}
         style={{ resize: 'none', overflow: 'auto', whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}
       />
+      {/* Mobile toolbar with Tab button */}
+      {isMobile && (
+        <div className="flex justify-end mt-2 px-1">
+          <button
+            onClick={handleInsertTab}
+            disabled={disabled}
+            className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-text-primary"
+          >
+            Tab
+          </button>
+        </div>
+      )}
     </div>
   );
 }
