@@ -53,6 +53,28 @@ export default function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Handle Tab key - insert \t placeholder instead of default tab behavior
+    if (e.key === 'Tab' && !disabled && !isComposing) {
+      e.preventDefault();
+
+      const textarea = e.target as HTMLTextAreaElement;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value;
+
+      // Insert \t placeholder at cursor position
+      const newValue = value.substring(0, start) + '\t' + value.substring(end);
+
+      setMessage(newValue);
+
+      // Set cursor position after the inserted tab
+      setTimeout(() => {
+        textarea.selectionStart = start + 1;
+        textarea.selectionEnd = start + 1;
+      }, 0);
+      return;
+    }
+
     // Handle Enter key for auto-indentation (only when Shift+Enter)
     if (e.key === 'Enter' && e.shiftKey && !disabled && !isComposing) {
       e.preventDefault();
