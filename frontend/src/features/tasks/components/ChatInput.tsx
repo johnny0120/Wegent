@@ -75,6 +75,62 @@ export default function ChatInput({
       return;
     }
 
+    // Handle Backspace key - remove auto-indented whitespace
+    if (e.key === 'Backspace' && !disabled && !isComposing) {
+      const textarea = e.target as HTMLTextAreaElement;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value;
+
+      // Only handle when cursor is at a single position (no selection)
+      if (start === end && start > 0) {
+        // Get the current line and previous character
+        const lines = value.substring(0, start).split('\n');
+        const currentLine = lines[lines.length - 1];
+
+        // Check if we're at the beginning of a line and the line contains only whitespace
+        if (currentLine.trim() === '' && currentLine.length > 0) {
+          e.preventDefault();
+
+          // Remove the entire line of whitespace and the newline character
+          const previousLines = lines.slice(0, -1);
+          const remainingText = value.substring(start);
+          const newValue = previousLines.join('\n') + (previousLines.length > 0 ? '\n' : '') + remainingText;
+
+          setMessage(newValue);
+
+          // Set cursor position at the end of the previous line
+          const newCursorPos = previousLines.length > 0 ? previousLines.join('\n').length + 1 : 0;
+          setTimeout(() => {
+            textarea.selectionStart = newCursorPos;
+            textarea.selectionEnd = newCursorPos;
+          }, 0);
+          return;
+        }
+
+        // Check if we're deleting whitespace that was auto-indented
+        const charBeforeCursor = value.substring(start - 1, start);
+        if (charBeforeCursor === ' ' || charBeforeCursor === '\t') {
+          // Get the line start position
+          const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+          const lineContent = value.substring(lineStart, start);
+
+          // If the line contains only whitespace up to cursor, remove all whitespace
+          if (lineContent.trim() === '') {
+            e.preventDefault();
+            const newValue = value.substring(0, lineStart) + value.substring(start);
+            setMessage(newValue);
+
+            setTimeout(() => {
+              textarea.selectionStart = lineStart;
+              textarea.selectionEnd = lineStart;
+            }, 0);
+            return;
+          }
+        }
+      }
+    }
+
     // Handle Enter key for auto-indentation (only when Shift+Enter)
     if (e.key === 'Enter' && e.shiftKey && !disabled && !isComposing) {
       e.preventDefault();
