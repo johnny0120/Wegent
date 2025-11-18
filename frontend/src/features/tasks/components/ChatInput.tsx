@@ -52,37 +52,32 @@ export default function ChatInput({
     }
   };
 
-  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
-    const textarea = e.target as HTMLTextAreaElement;
-    const value = textarea.value;
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Handle Enter key for auto-indentation (only when Shift+Enter)
+    if (e.key === 'Enter' && e.shiftKey && !disabled && !isComposing) {
+      e.preventDefault();
 
-    // Handle line formatting similar to markdown
-    // When user presses Enter, maintain the indentation and formatting
-    if (value.includes('\n')) {
-      const lines = value.split('\n');
-      const formattedLines = lines.map((line, index) => {
-        // For lines after the first one, preserve leading spaces/tabs
-        if (index > 0) {
-          // Count leading whitespace in the previous line
-          const prevLine = lines[index - 1];
-          const leadingWhitespace = prevLine.match(/^\s*/)?.[0] || '';
+      const textarea = e.target as HTMLTextAreaElement;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value;
 
-          // If current line is empty and previous line has content, preserve indentation
-          if (line.trim() === '' && prevLine.trim() !== '') {
-            return leadingWhitespace;
-          }
-        }
-        return line;
-      });
+      // Get the current line and its leading whitespace
+      const lines = value.substring(0, start).split('\n');
+      const currentLine = lines[lines.length - 1];
+      const leadingWhitespace = currentLine.match(/^\s*/)?.[0] || '';
 
-      const formattedValue = formattedLines.join('\n');
-      if (formattedValue !== value) {
-        setMessage(formattedValue);
-        return;
-      }
+      // Insert new line with preserved indentation
+      const newValue = value.substring(0, start) + '\n' + leadingWhitespace + value.substring(end);
+
+      setMessage(newValue);
+
+      // Set cursor position after the inserted whitespace
+      setTimeout(() => {
+        textarea.selectionStart = start + 1 + leadingWhitespace.length;
+        textarea.selectionEnd = start + 1 + leadingWhitespace.length;
+      }, 0);
     }
-
-    setMessage(value);
   };
 
   // Auto-focus on mount
@@ -97,8 +92,11 @@ export default function ChatInput({
       <TextareaAutosize
         ref={textareaRef}
         value={message}
-        onInput={handleInput}
-        onKeyDown={handleKeyPress}
+        onChange={e => {
+          if (!disabled) setMessage(e.target.value);
+        }}
+        onKeyDown={handleKeyDown}
+        onKeyPress={handleKeyPress}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         placeholder={t(placeholderKey)}
