@@ -4,7 +4,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import TextareaAutosize from 'react-textarea-autosize';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useIsMobile } from '@/features/layout/hooks/useMediaQuery';
@@ -29,6 +29,7 @@ export default function ChatInput({
   const placeholderKey = taskType === 'chat' ? 'chat.placeholder_chat' : 'chat.placeholder_code';
   const [isComposing, setIsComposing] = useState(false);
   const isMobile = useIsMobile();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleCompositionStart = () => {
     setIsComposing(true);
@@ -51,13 +52,52 @@ export default function ChatInput({
     }
   };
 
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target as HTMLTextAreaElement;
+    const value = textarea.value;
+
+    // Handle line formatting similar to markdown
+    // When user presses Enter, maintain the indentation and formatting
+    if (value.includes('\n')) {
+      const lines = value.split('\n');
+      const formattedLines = lines.map((line, index) => {
+        // For lines after the first one, preserve leading spaces/tabs
+        if (index > 0) {
+          // Count leading whitespace in the previous line
+          const prevLine = lines[index - 1];
+          const leadingWhitespace = prevLine.match(/^\s*/)?.[0] || '';
+
+          // If current line is empty and previous line has content, preserve indentation
+          if (line.trim() === '' && prevLine.trim() !== '') {
+            return leadingWhitespace;
+          }
+        }
+        return line;
+      });
+
+      const formattedValue = formattedLines.join('\n');
+      if (formattedValue !== value) {
+        setMessage(formattedValue);
+        return;
+      }
+    }
+
+    setMessage(value);
+  };
+
+  // Auto-focus on mount
+  useEffect(() => {
+    if (textareaRef.current && !disabled) {
+      textareaRef.current.focus();
+    }
+  }, [disabled]);
+
   return (
     <div className="w-full">
       <TextareaAutosize
+        ref={textareaRef}
         value={message}
-        onChange={e => {
-          if (!disabled) setMessage(e.target.value);
-        }}
+        onInput={handleInput}
         onKeyDown={handleKeyPress}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
@@ -66,7 +106,7 @@ export default function ChatInput({
         disabled={disabled}
         minRows={isMobile ? 2 : 3}
         maxRows={isMobile ? 6 : 8}
-        style={{ resize: 'none', overflow: 'auto' }}
+        style={{ resize: 'none', overflow: 'auto', whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}
       />
     </div>
   );
