@@ -1,66 +1,66 @@
-# Executor 模块本地开发文档
+# Executor Module Local Development Guide
 
-## 概述
+## Overview
 
-Executor 是 Wegent 项目的任务执行器模块，负责接收和处理任务请求。本模块基于 FastAPI 构建，提供 RESTful API 接口用于任务执行和管理。
+Executor is the task execution module of the Wegent project, responsible for receiving and processing task requests. This module is built on FastAPI and provides RESTful API interfaces for task execution and management.
 
-## 项目结构
+## Project Structure
 
 ```
 executor/
-├── agents/              # Agent 实现
-│   ├── agno/           # Agno Agent 实现
-│   ├── claude_code/    # Claude Code Agent 实现
-│   ├── base.py         # Agent 基类
-│   └── factory.py      # Agent 工厂
-├── callback/           # 回调处理
-├── config/             # 配置管理
-├── services/           # 业务服务层
-├── tasks/              # 任务处理
-├── utils/              # 工具函数
-├── tests/              # 测试用例
-├── main.py             # 应用入口
-└── requirements.txt    # 依赖包列表
+├── agents/              # Agent implementations
+│   ├── agno/           # Agno Agent implementation
+│   ├── claude_code/    # Claude Code Agent implementation
+│   ├── base.py         # Agent base class
+│   └── factory.py      # Agent factory
+├── callback/           # Callback handling
+├── config/             # Configuration management
+├── services/           # Business service layer
+├── tasks/              # Task processing
+├── utils/              # Utility functions
+├── tests/              # Test cases
+├── main.py             # Application entry point
+└── requirements.txt    # Dependency list
 ```
 
-## 本地启动
+## Local Setup
 
-> **⚠️ 重要提示**：
-> 1. 所有操作都必须在 **项目根目录（Wegent/）** 进行，而不是 executor 子目录
-> 2. 必须设置 `export PYTHONPATH=$(pwd)` 环境变量
-> 3. 推荐使用 uv 的虚拟环境来隔离项目依赖
+> **⚠️ Important Notes**:
+> 1. All operations must be performed in the **project root directory (Wegent/)**, not the executor subdirectory
+> 2. You must set the `export PYTHONPATH=$(pwd)` environment variable
+> 3. It's recommended to use uv's virtual environment to isolate project dependencies
 
-### 环境要求
+### Requirements
 
 - Python 3.8+
-- uv (推荐的 Python 包管理工具)
+- uv (recommended Python package manager)
 
-### 安装 uv
+### Installing uv
 
-如果你还没有安装 uv，可以通过以下命令安装：
+If you haven't installed uv yet, you can install it with the following commands:
 
 ```bash
 # macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 或使用 pip 安装
+# Or install via pip
 pip install uv
 ```
 
-### 步骤 1: 创建虚拟环境
+### Step 1: Create Virtual Environment
 
-> **重要**：虚拟环境需要在 **项目根目录** 创建，而不是 executor 子目录。
+> **Important**: The virtual environment must be created in the **project root directory**, not the executor subdirectory.
 
-使用 uv 创建并激活虚拟环境：
+Create and activate a virtual environment using uv:
 
 ```bash
-# 确保在项目根目录（Wegent/）
+# Ensure you're in the project root directory (Wegent/)
 cd /path/to/Wegent
 
-# 创建虚拟环境（基于项目 Python 版本）
+# Create virtual environment (based on project Python version)
 uv venv
 
-# 激活虚拟环境
+# Activate virtual environment
 # Linux/macOS:
 source .venv/bin/activate
 
@@ -68,114 +68,114 @@ source .venv/bin/activate
 # .venv\Scripts\activate
 ```
 
-### 步骤 2: 安装依赖
+### Step 2: Install Dependencies
 
-在虚拟环境中安装项目依赖：
+Install project dependencies in the virtual environment:
 
 ```bash
-# 确保在项目根目录
+# Ensure you're in the project root directory
 cd /path/to/Wegent
 
-# 安装 executor 模块的依赖
+# Install executor module dependencies
 uv pip install -r executor/requirements.txt
 ```
 
-### 步骤 3: 配置环境变量
+### Step 3: Configure Environment Variables
 
-Executor 需要以下环境变量进行配置：
+Executor requires the following environment variables:
 
-#### 必需环境变量
+#### Required Environment Variables
 
 ```bash
-# Python 路径配置（必需！）
+# Python path configuration (Required!)
 export PYTHONPATH=$(pwd)
 
-# API 密钥配置
+# API key configuration
 export ANTHROPIC_API_KEY="your-anthropic-api-key"
-export OPENAI_API_KEY="your-openai-api-key"  # 如果使用 OpenAI 模型
+export OPENAI_API_KEY="your-openai-api-key"  # If using OpenAI models
 
-# 工作空间配置
-export WORKSPACE_ROOT="/path/to/your/workspace"  # 默认: /workspace/
+# Workspace configuration
+export WORKSPACE_ROOT="/path/to/your/workspace"  # Default: /workspace/
 
-# 服务端口
-export PORT=10001  # 默认: 10001
+# Service port
+export PORT=10001  # Default: 10001
 ```
 
-#### 可选环境变量
+#### Optional Environment Variables
 
 ```bash
-# 回调 URL（用于任务状态回调）
-export CALLBACK_URL="http://your-callback-service/api/callback"
+# Callback URL (for task status callbacks)
+export CALLBACK_URL="http://your-callback-service/executor-manager/callback"
 
-# 执行器标识（K8s 环境使用）
+# Executor identification (used in K8s environment)
 export EXECUTOR_NAME="local-executor"
 export EXECUTOR_NAMESPACE="default"
 
-# 调试模式
+# Debug mode
 export DEBUG_RUN="true"
 
-# 自定义配置（JSON 格式）
+# Custom configuration (JSON format)
 export EXECUTOR_ENV='{}'
 ```
 
-#### 任务信息（可选，用于启动时自动执行任务）
+#### Task Information (Optional, for auto-execution on startup)
 
 ```bash
-# TASK_INFO 包含任务的详细信息
+# TASK_INFO contains detailed task information
 export TASK_INFO='{"task_id": 1, "subtask_id": 1, "agent_type": "claude_code", ...}'
 ```
 
-### 步骤 4: 启动服务
+### Step 4: Start the Service
 
-> **注意**：启动服务必须在 **项目根目录** 执行，且已设置 PYTHONPATH。
+> **Note**: The service must be started from the **project root directory** with PYTHONPATH set.
 
-在虚拟环境中使用 uv 运行服务：
+Run the service using uv in the virtual environment:
 
 ```bash
-# 确保在项目根目录（Wegent/）
+# Ensure you're in the project root directory (Wegent/)
 cd /path/to/Wegent
 
-# 确保虚拟环境已激活
-# 如果没有激活，先运行: source .venv/bin/activate
+# Ensure virtual environment is activated
+# If not activated, run: source .venv/bin/activate
 
-# 设置 PYTHONPATH（必需！）
+# Set PYTHONPATH (Required!)
 export PYTHONPATH=$(pwd)
 
-# 方式 1: 直接使用 uv 运行
+# Method 1: Run directly using uv
 uv run python -m executor.main
 
-# 方式 2: 使用 uvicorn 运行（更多控制选项，推荐用于开发）
+# Method 2: Run with uvicorn (more control options, recommended for development)
 uv run uvicorn executor.main:app --host 0.0.0.0 --port 10001 --reload
 
-# 方式 3: 在已激活的虚拟环境中直接运行
+# Method 3: Run directly in activated virtual environment
 python -m executor.main
-# 或
+# Or
 uvicorn executor.main:app --host 0.0.0.0 --port 10001 --reload
 ```
 
-#### 启动参数说明
+#### Startup Parameter Explanation
 
-- `--host 0.0.0.0`: 监听所有网络接口
-- `--port 10001`: 指定服务端口（默认 10001）
-- `--reload`: 开启热重载，代码修改后自动重启（仅开发环境使用）
+- `--host 0.0.0.0`: Listen on all network interfaces
+- `--port 10001`: Specify service port (default 10001)
+- `--reload`: Enable hot reload, automatically restart after code changes (development only)
 
-### 步骤 5: 验证服务
+### Step 5: Verify Service
 
-服务启动后，可以通过以下方式验证：
+After the service starts, you can verify it with:
 
 ```bash
-# 检查服务健康状态
+# Check service health
 curl http://localhost:10001/docs
 
-# 查看 API 文档
-# 在浏览器中打开: http://localhost:10001/docs
+# View API documentation
+# Open in browser: http://localhost:10001/docs
 ```
 
-## API 接口
+## API Endpoints
 
-Executor 提供以下主要 API 接口：
+Executor provides the following main API endpoints:
 
-### 1. 执行任务
+### 1. Execute Task
 
 ```bash
 POST /api/tasks/execute
@@ -185,9 +185,9 @@ Content-Type: application/json
   "task_id": 1,
   "subtask_id": 1,
   "agent_type": "claude_code",
-  "task_title": "任务标题",
-  "subtask_title": "子任务标题",
-  "content": "任务内容",
+  "task_title": "Task Title",
+  "subtask_title": "Subtask Title",
+  "content": "Task Content",
   "repo_url": "https://github.com/example/repo.git",
   "branch": "main",
   "git_username": "user",
@@ -195,98 +195,98 @@ Content-Type: application/json
 }
 ```
 
-### 2. 列出所有会话
+### 2. List All Sessions
 
 ```bash
 GET /api/tasks/sessions
 ```
 
-### 3. 删除指定会话
+### 3. Delete Specific Session
 
 ```bash
 DELETE /api/tasks/session?task_id=1
 ```
 
-### 4. 关闭所有 Claude 会话
+### 4. Close All Claude Sessions
 
 ```bash
 DELETE /api/tasks/claude/sessions
 ```
 
-### 5. 关闭所有 Agent 会话
+### 5. Close All Agent Sessions
 
 ```bash
 DELETE /api/tasks/sessions/close
 ```
 
-## 快速启动脚本示例
+## Quick Start Script Example
 
-创建一个 `start.sh` 脚本用于快速启动：
+Create a `start.sh` script for quick startup:
 
 ```bash
 #!/bin/bash
 
-# 必须在项目根目录运行
+# Must run from project root directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# 设置 PYTHONPATH（必需！）
+# Set PYTHONPATH (Required!)
 export PYTHONPATH=$(pwd)
 
-# 设置其他环境变量
+# Set other environment variables
 export ANTHROPIC_API_KEY="your-api-key"
 export WORKSPACE_ROOT="./workspace"
 export PORT=10001
 export DEBUG_RUN="true"
 
-# 创建工作空间目录
+# Create workspace directory
 mkdir -p $WORKSPACE_ROOT
 
-# 创建虚拟环境（如果不存在）
+# Create virtual environment (if it doesn't exist)
 if [ ! -d ".venv" ]; then
     echo "Creating virtual environment..."
     uv venv
 fi
 
-# 激活虚拟环境
+# Activate virtual environment
 echo "Activating virtual environment..."
 source .venv/bin/activate
 
-# 安装依赖（首次运行或更新依赖时）
+# Install dependencies (first run or when updating dependencies)
 echo "Installing dependencies..."
 uv pip install -r executor/requirements.txt
 
-# 启动服务
+# Start service
 echo "Starting executor service..."
 echo "PYTHONPATH is set to: $PYTHONPATH"
 uv run uvicorn executor.main:app --host 0.0.0.0 --port $PORT --reload
 ```
 
-使用方式：
+Usage:
 
 ```bash
-# 在项目根目录创建脚本
+# Create script in project root directory
 cd /path/to/Wegent
 chmod +x start.sh
 ./start.sh
 ```
 
-## 开发调试
+## Development & Debugging
 
-### 查看日志
+### Viewing Logs
 
-Executor 使用结构化日志，日志会输出到控制台：
+Executor uses structured logging, which outputs to the console:
 
 ```bash
-# 日志格式
+# Log format
 2025-01-10 10:30:00 - task_executor - INFO - Starting task execution...
 ```
 
-### 使用 IDE 调试
+### IDE Debugging
 
-#### VS Code 配置
+#### VS Code Configuration
 
-在 `.vscode/launch.json` 中添加配置：
+Add the following configuration to `.vscode/launch.json`:
 
 ```json
 {
@@ -315,141 +315,141 @@ Executor 使用结构化日志，日志会输出到控制台：
 }
 ```
 
-### 运行测试
+### Running Tests
 
-在虚拟环境中运行测试：
+Run tests in the virtual environment:
 
 ```bash
-# 确保虚拟环境已激活
+# Ensure virtual environment is activated
 source .venv/bin/activate
 
-# 安装测试依赖
+# Install test dependencies
 uv pip install pytest pytest-asyncio
 
-# 运行所有测试
+# Run all tests
 uv run pytest
-# 或在激活的虚拟环境中
+# Or in activated virtual environment
 pytest
 
-# 运行指定测试文件
+# Run specific test file
 uv run pytest tests/agents/test_factory.py
 
-# 运行测试并显示详细输出
+# Run tests with verbose output
 uv run pytest -v
 
-# 运行测试并显示覆盖率
+# Run tests with coverage report
 uv run pytest --cov=executor --cov-report=html
 ```
 
-## 常见问题
+## Troubleshooting
 
-### 1. 端口被占用
+### 1. Port Already in Use
 
-错误信息：`[Errno 48] Address already in use`
+Error message: `[Errno 48] Address already in use`
 
-解决方法：
+Solution:
 ```bash
-# 查找占用端口的进程
+# Find process using the port
 lsof -i :10001
 
-# 杀掉占用端口的进程
+# Kill the process
 kill -9 <PID>
 
-# 或使用其他端口
+# Or use a different port
 export PORT=10002
 ```
 
-### 2. API Key 未配置
+### 2. API Key Not Configured
 
-错误信息：`API key not configured`
+Error message: `API key not configured`
 
-解决方法：
+Solution:
 ```bash
-# 确保设置了正确的 API Key
+# Ensure you set the correct API key
 export ANTHROPIC_API_KEY="your-actual-api-key"
 ```
 
-### 3. 工作空间路径不存在
+### 3. Workspace Path Does Not Exist
 
-错误信息：`Workspace directory does not exist`
+Error message: `Workspace directory does not exist`
 
-解决方法：
+Solution:
 ```bash
-# 创建工作空间目录
+# Create workspace directory
 mkdir -p /path/to/workspace
 export WORKSPACE_ROOT="/path/to/workspace"
 ```
 
-### 4. 虚拟环境未激活
+### 4. Virtual Environment Not Activated
 
-错误信息：`ModuleNotFoundError: No module named 'xxx'`
+Error message: `ModuleNotFoundError: No module named 'xxx'`
 
-解决方法：
+Solution:
 ```bash
-# 激活虚拟环境（确保在项目根目录）
+# Activate virtual environment (ensure you're in project root)
 cd /path/to/Wegent
 source .venv/bin/activate
 
-# 确认虚拟环境已激活（命令行前会显示 (.venv)）
-# 然后重新运行命令
+# Confirm virtual environment is activated ((.venv) will appear in command prompt)
+# Then re-run the command
 ```
 
-### 5. PYTHONPATH 未设置
+### 5. PYTHONPATH Not Set
 
-错误信息：`ModuleNotFoundError: No module named 'shared'` 或 `ModuleNotFoundError: No module named 'executor'`
+Error message: `ModuleNotFoundError: No module named 'shared'` or `ModuleNotFoundError: No module named 'executor'`
 
-解决方法：
+Solution:
 ```bash
-# 必须在项目根目录设置 PYTHONPATH
+# Must set PYTHONPATH from project root directory
 cd /path/to/Wegent
 export PYTHONPATH=$(pwd)
 
-# 确认 PYTHONPATH 已设置
+# Confirm PYTHONPATH is set
 echo $PYTHONPATH
 
-# 然后重新运行启动命令
+# Then re-run startup command
 ```
 
-### 6. 在错误的目录运行
+### 6. Running in Wrong Directory
 
-错误信息：各种模块导入错误
+Error message: Various module import errors
 
-解决方法：
+Solution:
 ```bash
-# 确保在项目根目录（Wegent/）而不是 executor/ 子目录
-cd /path/to/Wegent  # 正确
-# 不要在 /path/to/Wegent/executor 目录运行
+# Ensure you're in project root directory (Wegent/) not executor/ subdirectory
+cd /path/to/Wegent  # Correct
+# Don't run from /path/to/Wegent/executor directory
 
-# 设置 PYTHONPATH
+# Set PYTHONPATH
 export PYTHONPATH=$(pwd)
 
-# 然后运行启动命令
+# Then run startup command
 uv run uvicorn executor.main:app --host 0.0.0.0 --port 10001 --reload
 ```
 
-### 7. uv 命令找不到
+### 7. uv Command Not Found
 
-错误信息：`command not found: uv`
+Error message: `command not found: uv`
 
-解决方法：
+Solution:
 ```bash
-# 安装 uv
+# Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 或使用 pip 安装
+# Or install via pip
 pip install uv
 
-# 重新加载 shell 配置
-source ~/.bashrc  # 或 source ~/.zshrc
+# Reload shell configuration
+source ~/.bashrc  # or source ~/.zshrc
 ```
 
-## 下一步
+## Next Steps
 
-- [Agent 开发指南](./AGENT_DEV.md)（待完成）
-- [配置详解](./CONFIG.md)（待完成）
-- [部署指南](./DEPLOYMENT.md)（待完成）
-- [API 参考文档](./API.md)（待完成）
+- [Agent Development Guide](./AGENT_DEV.md) (TODO)
+- [Configuration Details](./CONFIG.md) (TODO)
+- [Deployment Guide](./DEPLOYMENT.md) (TODO)
+- [API Reference Documentation](./API.md) (TODO)
 
-## 许可证
+## License
 
-Apache License 2.0 - 详见项目根目录 LICENSE 文件
+Apache License 2.0 - See LICENSE file in project root directory
