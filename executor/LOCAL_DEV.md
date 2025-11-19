@@ -42,19 +42,37 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 pip install uv
 ```
 
-### 步骤 1: 安装依赖
+> **重要提示**：本文档推荐使用 uv 的虚拟环境来隔离项目依赖，避免与系统 Python 环境冲突。所有的依赖安装和代码运行都应该在虚拟环境中进行。
 
-使用 uv 安装项目依赖：
+### 步骤 1: 创建虚拟环境
+
+使用 uv 创建并激活虚拟环境：
 
 ```bash
 # 进入 executor 目录
 cd executor
 
+# 创建虚拟环境（基于项目 Python 版本）
+uv venv
+
+# 激活虚拟环境
+# Linux/macOS:
+source .venv/bin/activate
+
+# Windows:
+# .venv\Scripts\activate
+```
+
+### 步骤 2: 安装依赖
+
+在虚拟环境中安装项目依赖：
+
+```bash
 # 使用 uv 安装依赖
 uv pip install -r requirements.txt
 ```
 
-### 步骤 2: 配置环境变量
+### 步骤 3: 配置环境变量
 
 Executor 需要以下环境变量进行配置：
 
@@ -96,16 +114,24 @@ export EXECUTOR_ENV='{}'
 export TASK_INFO='{"task_id": 1, "subtask_id": 1, "agent_type": "claude_code", ...}'
 ```
 
-### 步骤 3: 启动服务
+### 步骤 4: 启动服务
 
-使用 uv 运行服务：
+在虚拟环境中使用 uv 运行服务：
 
 ```bash
+# 确保虚拟环境已激活
+# 如果没有激活，先运行: source .venv/bin/activate
+
 # 方式 1: 直接使用 uv 运行
 uv run python -m executor.main
 
-# 方式 2: 使用 uvicorn 运行（更多控制选项）
+# 方式 2: 使用 uvicorn 运行（更多控制选项，推荐用于开发）
 uv run uvicorn executor.main:app --host 0.0.0.0 --port 10001 --reload
+
+# 方式 3: 在已激活的虚拟环境中直接运行
+python -m executor.main
+# 或
+uvicorn executor.main:app --host 0.0.0.0 --port 10001 --reload
 ```
 
 #### 启动参数说明
@@ -114,7 +140,7 @@ uv run uvicorn executor.main:app --host 0.0.0.0 --port 10001 --reload
 - `--port 10001`: 指定服务端口（默认 10001）
 - `--reload`: 开启热重载，代码修改后自动重启（仅开发环境使用）
 
-### 步骤 4: 验证服务
+### 步骤 5: 验证服务
 
 服务启动后，可以通过以下方式验证：
 
@@ -193,10 +219,22 @@ mkdir -p $WORKSPACE_ROOT
 # 进入 executor 目录
 cd executor
 
-# 安装依赖（首次运行）
+# 创建虚拟环境（如果不存在）
+if [ ! -d ".venv" ]; then
+    echo "Creating virtual environment..."
+    uv venv
+fi
+
+# 激活虚拟环境
+echo "Activating virtual environment..."
+source .venv/bin/activate
+
+# 安装依赖（首次运行或更新依赖时）
+echo "Installing dependencies..."
 uv pip install -r requirements.txt
 
 # 启动服务
+echo "Starting executor service..."
 uv run uvicorn executor.main:app --host 0.0.0.0 --port $PORT --reload
 ```
 
@@ -253,12 +291,19 @@ Executor 使用结构化日志，日志会输出到控制台：
 
 ### 运行测试
 
+在虚拟环境中运行测试：
+
 ```bash
+# 确保虚拟环境已激活
+source .venv/bin/activate
+
 # 安装测试依赖
 uv pip install pytest pytest-asyncio
 
 # 运行所有测试
 uv run pytest
+# 或在激活的虚拟环境中
+pytest
 
 # 运行指定测试文件
 uv run pytest tests/agents/test_factory.py
@@ -307,6 +352,36 @@ export ANTHROPIC_API_KEY="your-actual-api-key"
 # 创建工作空间目录
 mkdir -p /path/to/workspace
 export WORKSPACE_ROOT="/path/to/workspace"
+```
+
+### 4. 虚拟环境未激活
+
+错误信息：`ModuleNotFoundError: No module named 'xxx'`
+
+解决方法：
+```bash
+# 激活虚拟环境
+cd executor
+source .venv/bin/activate
+
+# 确认虚拟环境已激活（命令行前会显示 (.venv)）
+# 然后重新运行命令
+```
+
+### 5. uv 命令找不到
+
+错误信息：`command not found: uv`
+
+解决方法：
+```bash
+# 安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 或使用 pip 安装
+pip install uv
+
+# 重新加载 shell 配置
+source ~/.bashrc  # 或 source ~/.zshrc
 ```
 
 ## 下一步
