@@ -25,6 +25,11 @@ executor/
 
 ## 本地启动
 
+> **⚠️ 重要提示**：
+> 1. 所有操作都必须在 **项目根目录（Wegent/）** 进行，而不是 executor 子目录
+> 2. 必须设置 `export PYTHONPATH=$(pwd)` 环境变量
+> 3. 推荐使用 uv 的虚拟环境来隔离项目依赖
+
 ### 环境要求
 
 - Python 3.8+
@@ -42,15 +47,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 pip install uv
 ```
 
-> **重要提示**：本文档推荐使用 uv 的虚拟环境来隔离项目依赖，避免与系统 Python 环境冲突。所有的依赖安装和代码运行都应该在虚拟环境中进行。
-
 ### 步骤 1: 创建虚拟环境
+
+> **重要**：虚拟环境需要在 **项目根目录** 创建，而不是 executor 子目录。
 
 使用 uv 创建并激活虚拟环境：
 
 ```bash
-# 进入 executor 目录
-cd executor
+# 确保在项目根目录（Wegent/）
+cd /path/to/Wegent
 
 # 创建虚拟环境（基于项目 Python 版本）
 uv venv
@@ -68,8 +73,11 @@ source .venv/bin/activate
 在虚拟环境中安装项目依赖：
 
 ```bash
-# 使用 uv 安装依赖
-uv pip install -r requirements.txt
+# 确保在项目根目录
+cd /path/to/Wegent
+
+# 安装 executor 模块的依赖
+uv pip install -r executor/requirements.txt
 ```
 
 ### 步骤 3: 配置环境变量
@@ -79,6 +87,9 @@ Executor 需要以下环境变量进行配置：
 #### 必需环境变量
 
 ```bash
+# Python 路径配置（必需！）
+export PYTHONPATH=$(pwd)
+
 # API 密钥配置
 export ANTHROPIC_API_KEY="your-anthropic-api-key"
 export OPENAI_API_KEY="your-openai-api-key"  # 如果使用 OpenAI 模型
@@ -116,11 +127,19 @@ export TASK_INFO='{"task_id": 1, "subtask_id": 1, "agent_type": "claude_code", .
 
 ### 步骤 4: 启动服务
 
+> **注意**：启动服务必须在 **项目根目录** 执行，且已设置 PYTHONPATH。
+
 在虚拟环境中使用 uv 运行服务：
 
 ```bash
+# 确保在项目根目录（Wegent/）
+cd /path/to/Wegent
+
 # 确保虚拟环境已激活
 # 如果没有激活，先运行: source .venv/bin/activate
+
+# 设置 PYTHONPATH（必需！）
+export PYTHONPATH=$(pwd)
 
 # 方式 1: 直接使用 uv 运行
 uv run python -m executor.main
@@ -207,7 +226,14 @@ DELETE /api/tasks/sessions/close
 ```bash
 #!/bin/bash
 
-# 设置环境变量
+# 必须在项目根目录运行
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# 设置 PYTHONPATH（必需！）
+export PYTHONPATH=$(pwd)
+
+# 设置其他环境变量
 export ANTHROPIC_API_KEY="your-api-key"
 export WORKSPACE_ROOT="./workspace"
 export PORT=10001
@@ -215,9 +241,6 @@ export DEBUG_RUN="true"
 
 # 创建工作空间目录
 mkdir -p $WORKSPACE_ROOT
-
-# 进入 executor 目录
-cd executor
 
 # 创建虚拟环境（如果不存在）
 if [ ! -d ".venv" ]; then
@@ -231,16 +254,19 @@ source .venv/bin/activate
 
 # 安装依赖（首次运行或更新依赖时）
 echo "Installing dependencies..."
-uv pip install -r requirements.txt
+uv pip install -r executor/requirements.txt
 
 # 启动服务
 echo "Starting executor service..."
+echo "PYTHONPATH is set to: $PYTHONPATH"
 uv run uvicorn executor.main:app --host 0.0.0.0 --port $PORT --reload
 ```
 
 使用方式：
 
 ```bash
+# 在项目根目录创建脚本
+cd /path/to/Wegent
 chmod +x start.sh
 ./start.sh
 ```
@@ -360,15 +386,48 @@ export WORKSPACE_ROOT="/path/to/workspace"
 
 解决方法：
 ```bash
-# 激活虚拟环境
-cd executor
+# 激活虚拟环境（确保在项目根目录）
+cd /path/to/Wegent
 source .venv/bin/activate
 
 # 确认虚拟环境已激活（命令行前会显示 (.venv)）
 # 然后重新运行命令
 ```
 
-### 5. uv 命令找不到
+### 5. PYTHONPATH 未设置
+
+错误信息：`ModuleNotFoundError: No module named 'shared'` 或 `ModuleNotFoundError: No module named 'executor'`
+
+解决方法：
+```bash
+# 必须在项目根目录设置 PYTHONPATH
+cd /path/to/Wegent
+export PYTHONPATH=$(pwd)
+
+# 确认 PYTHONPATH 已设置
+echo $PYTHONPATH
+
+# 然后重新运行启动命令
+```
+
+### 6. 在错误的目录运行
+
+错误信息：各种模块导入错误
+
+解决方法：
+```bash
+# 确保在项目根目录（Wegent/）而不是 executor/ 子目录
+cd /path/to/Wegent  # 正确
+# 不要在 /path/to/Wegent/executor 目录运行
+
+# 设置 PYTHONPATH
+export PYTHONPATH=$(pwd)
+
+# 然后运行启动命令
+uv run uvicorn executor.main:app --host 0.0.0.0 --port 10001 --reload
+```
+
+### 7. uv 命令找不到
 
 错误信息：`command not found: uv`
 
