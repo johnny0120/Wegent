@@ -283,9 +283,9 @@ export default function TaskSidebar({
   return (
     <>
       {/* Desktop Sidebar - Hidden on mobile, width controlled by parent ResizableSidebar */}
-      <div className="hidden lg:flex lg:flex-col w-full h-full lg:p-[10px]">
+      <div className="hidden lg:flex lg:flex-col w-full h-full lg:p-[5px]">
         <div
-          className="flex flex-col w-full h-full bg-surface/80 backdrop-blur-xl rounded-lg shadow-md hover:shadow-xl transition-all duration-300 border border-border/50"
+          className="flex flex-col w-full h-full bg-surface/30 backdrop-blur-xl rounded-lg shadow-md hover:shadow-xl transition-all duration-300 border border-border/50 z-10"
           data-tour="task-sidebar"
         >
           {sidebarContent}
