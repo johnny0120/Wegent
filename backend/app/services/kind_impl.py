@@ -350,6 +350,7 @@ class TaskKindService(KindBaseService):
                     'errorMessage': subtask.error_message,
                     'messageId': subtask.message_id,
                     'parentId': subtask.parent_id,
+                    'prompt': subtask.prompt,
                     'createdAt': subtask.created_at,
                     'updatedAt': subtask.updated_at,
                     'completedAt': subtask.completed_at
