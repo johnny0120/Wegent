@@ -627,7 +627,7 @@ export default function MessagesArea({
 
     return {
       type: 'final_prompt',
-      prompt: match[1].trim(),
+      final_prompt: match[1].trim(),
     };
   };
 

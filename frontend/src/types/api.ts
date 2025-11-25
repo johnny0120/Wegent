@@ -346,7 +346,7 @@ export interface DifyApp {
 
 export interface DifyBotPrompt {
   difyAppId?: string;
-  params?: Record<string, any>;
+  params?: Record<string, unknown>;
 }
 
 export interface DifyParameterField {
