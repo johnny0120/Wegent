@@ -40,6 +40,7 @@ export default function TaskSidebar({
     isSearchResult,
     getUnreadCount,
     markAllTasksAsViewed,
+    viewStatusVersion,
   } = useTaskContext();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
@@ -93,14 +94,18 @@ export default function TaskSidebar({
   const groupTasksByDate = React.useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    // Calculate the start of this week (Monday 00:00:00)
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, 6 days back; otherwise (dayOfWeek - 1)
+    const thisMonday = new Date(today.getTime() - daysFromMonday * 24 * 60 * 60 * 1000);
 
     const todayTasks = tasks.filter(task => new Date(task.created_at) >= today);
     const thisWeekTasks = tasks.filter(task => {
       const taskDate = new Date(task.created_at);
-      return taskDate >= weekAgo && taskDate < today;
+      return taskDate >= thisMonday && taskDate < today;
     });
-    const earlierTasks = tasks.filter(task => new Date(task.created_at) < weekAgo);
+    const earlierTasks = tasks.filter(task => new Date(task.created_at) < thisMonday);
 
     return {
       today: todayTasks,
@@ -110,7 +115,7 @@ export default function TaskSidebar({
       thisWeekUnread: getUnreadCount(thisWeekTasks),
       earlierUnread: getUnreadCount(earlierTasks),
     };
-  }, [tasks, getUnreadCount]);
+  }, [tasks, getUnreadCount, viewStatusVersion]);
 
   // New task
   const handleNewAgentClick = () => {
@@ -138,7 +143,7 @@ export default function TaskSidebar({
   // Calculate total unread count
   const totalUnreadCount = React.useMemo(() => {
     return getUnreadCount(tasks);
-  }, [tasks, getUnreadCount]);
+  }, [tasks, getUnreadCount, viewStatusVersion]);
 
   // Scroll to bottom to load more
   useEffect(() => {
@@ -230,6 +235,7 @@ export default function TaskSidebar({
             title={t('tasks.search_results')}
             unreadCount={getUnreadCount(tasks)}
             onTaskClick={() => setIsMobileSidebarOpen(false)}
+            key={`search-${viewStatusVersion}`}
           />
         ) : (
           <>
@@ -238,18 +244,21 @@ export default function TaskSidebar({
               title={t('tasks.today')}
               unreadCount={groupTasksByDate.todayUnread}
               onTaskClick={() => setIsMobileSidebarOpen(false)}
+              key={`today-${viewStatusVersion}`}
             />
             <TaskListSection
               tasks={groupTasksByDate.thisWeek}
               title={t('tasks.this_week')}
               unreadCount={groupTasksByDate.thisWeekUnread}
               onTaskClick={() => setIsMobileSidebarOpen(false)}
+              key={`week-${viewStatusVersion}`}
             />
             <TaskListSection
               tasks={groupTasksByDate.earlier}
               title={t('tasks.earlier')}
               unreadCount={groupTasksByDate.earlierUnread}
               onTaskClick={() => setIsMobileSidebarOpen(false)}
+              key={`earlier-${viewStatusVersion}`}
             />
           </>
         )}

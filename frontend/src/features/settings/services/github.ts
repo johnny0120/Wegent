@@ -14,40 +14,53 @@ export async function fetchGitInfo(user: User): Promise<GitInfo[]> {
 
 /**
  * Save/Update git token
- */
-/**
- * Save/Update git token
  * @param user Current user (from UserContext)
  */
 export async function saveGitToken(
   user: User,
   git_domain: string,
-  git_token: string
+  git_token: string,
+  username?: string,
+  type?: GitInfo['type']
 ): Promise<void> {
-  const newGitInfo = Array.isArray(user.git_info) ? [...user.git_info] : [];
-  const idx = newGitInfo.findIndex(info => info.git_domain === git_domain);
-  if (idx >= 0) {
-    newGitInfo[idx].git_token = git_token;
-  } else {
-    const type = git_domain.includes('github') ? 'github' : 'gitlab';
-    newGitInfo.push({ git_domain, git_token, type });
+  // Auto-detect type if not provided
+  let detectedType: GitInfo['type'] = type || 'gitlab';
+  if (!type) {
+    if (git_domain.includes('github')) {
+      detectedType = 'github';
+    } else if (git_domain.includes('gitlab')) {
+      detectedType = 'gitlab';
+    } else if (git_domain.includes('gitee')) {
+      detectedType = 'gitee';
+    } else if (git_domain.includes('gerrit')) {
+      detectedType = 'gerrit';
+    }
   }
-  await userApis.updateUser({ git_info: newGitInfo });
+
+  // Only send the git_info item being saved/updated
+  const gitInfoToSave: GitInfo = {
+    git_domain,
+    git_token,
+    type: detectedType,
+  };
+
+  // Add user_name if provided
+  if (username !== undefined && username !== '') {
+    gitInfoToSave.user_name = username;
+  }
+
+  // Send only the single git_info item being saved
+  await userApis.updateUser({ git_info: [gitInfoToSave] });
 }
 
 /**
  * Delete git token
- */
-/**
- * Delete git token
  * @param user Current user (from UserContext)
+ * @param git_domain Git domain to delete
  */
 export async function deleteGitToken(user: User, git_domain: string): Promise<boolean> {
   try {
-    const newGitInfo = Array.isArray(user.git_info)
-      ? user.git_info.filter(info => info.git_domain !== git_domain)
-      : [];
-    await userApis.updateUser({ git_info: newGitInfo });
+    await userApis.deleteGitToken(git_domain);
     return true;
   } catch {
     return false;

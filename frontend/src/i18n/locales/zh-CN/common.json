@@ -90,6 +90,13 @@
     "import_mode_append": "追加到现有配置",
     "import_success": "MCP配置导入成功",
     "append_success": "MCP配置追加成功",
+    "quick_templates": "使用预设模板快速配置",
+    "template": "模板",
+    "template_hint": "点击模板按钮将自动填充配置,您只需修改 API Key 即可",
+    "template_applied": "模板已应用",
+    "please_update_api_key": "请将配置中的 API Key 修改为您的实际密钥",
+    "view_model_config_guide": "查看模型配置详细指南",
+    "view_shell_config_guide": "查看执行器配置详细指南",
     "errors": {
       "required": "请填写所有必填项",
       "agent_config_json": "模型配置必须是合法 JSON 格式",
@@ -222,9 +229,10 @@
   },
   "branches": {
     "load_failed": "加载分支失败",
-    "select_repository": "选择仓库",
     "search_repository": "搜索仓库...",
-    "select_branch": "选择分支",
+    "select_repository": "选择仓库...",
+    "search_branch": "搜索分支...",
+    "select_branch": "选择分支...",
     "loading": "加载分支中...",
     "no_branch": "未找到分支",
     "no_match": "没有匹配的结果",
@@ -244,6 +252,7 @@
     "search_results": "搜索结果",
     "no_search_results": "没有匹配的任务",
     "copy_task_id": "复制任务ID",
+    "cancel_task": "取消任务",
     "delete_task": "删除任务",
     "searching": "搜索中...",
     "mark_all_read": "全部标记为已读",
@@ -311,7 +320,8 @@
     "error": {
       "required": "请填写所有必填项",
       "save_failed": "保存失败",
-      "invalid_domain": "请输入有效的域名（如 gitlab.example.com），不要包含协议或结尾斜杠"
+      "invalid_domain": "请输入有效的域名(如 gitlab.example.com 或 http://gitlab.internal.com)",
+      "gerrit_username_required": "Gerrit 需要填写用户名"
     },
     "modal": {
       "title_edit": "编辑令牌",
@@ -320,23 +330,33 @@
     "platform": "平台",
     "platform_github": "GitHub",
     "platform_gitlab": "GitLab",
+    "platform_gerrit": "Gerrit",
     "domain": "平台域名",
+    "username": "用户名",
+    "username_placeholder": "Gerrit 用户名",
     "token": {
       "title": "个人访问令牌",
+      "title_gerrit": "HTTP password",
       "placeholder_github": "ghp_xxxxxxxxxxxxxxxxxxxx",
-      "placeholder_gitlab": "glpat-xxxxxxxxxxxxxxxxxxxx"
+      "placeholder_gitlab": "glpat-xxxxxxxxxxxxxxxxxxxx",
+      "placeholder_gerrit": "从 Gerrit 设置中获取的 HTTP password"
     },
     "howto": {
       "step1_visit": "1. 访问",
       "github": {
         "title": "如何获取 GitHub 令牌：",
-        "step2": "2. 点击“Generate new token (classic)”",
+        "step2": "2. 点击 \"Generate new token (classic)\"",
         "step3": "3. 选择合适的权限范围并复制生成的令牌"
       },
       "gitlab": {
         "title": "如何获取 GitLab 令牌：",
-        "step2": "2. 点击“Add new token”",
+        "step2": "2. 点击 \"Add new token\"",
         "step3": "3. 选择合适的权限范围并复制生成的令牌"
+      },
+      "gerrit": {
+        "title": "如何获取 Gerrit HTTP password：",
+        "step2": "2. 在 \"HTTP Credentials\" 下生成新的 HTTP password",
+        "step3": "3. 复制用户名和password,并粘贴到此处"
       }
     },
     "saving": "保存中...",

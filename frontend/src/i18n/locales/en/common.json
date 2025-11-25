@@ -76,6 +76,13 @@
     "import_mode_append": "Append to existing config",
     "import_success": "MCP configuration imported successfully",
     "append_success": "MCP configuration appended successfully",
+    "quick_templates": "Use Preset Templates for Quick Configuration",
+    "template": "Template",
+    "template_hint": "Click template button to autofill configuration, then modify the API Key",
+    "template_applied": "Template Applied",
+    "please_update_api_key": "Please update the API Key to your actual key",
+    "view_model_config_guide": "View Model Configuration Guide",
+    "view_shell_config_guide": "View Shell Configuration Guide",
     "errors": {
       "required": "Please fill in all required fields",
       "agent_config_json": "Model configuration must be valid JSON",
@@ -221,10 +228,13 @@
   },
   "branches": {
     "load_failed": "Failed to load branches",
-    "select_repository": "Select Repository",
-    "select_branch": "Select Branch",
+    "search_repository": "Search Repository...",
+    "select_repository": "Select Repository...",
+    "search_branch": "Select Branch...",
+    "select_branch": "Select Branch...",
     "loading": "loading branch...",
     "no_branch": "No Branch Found",
+    "no_match": "No matching results",
     "default": "(default)",
     "set_token": "Set Token"
   },
@@ -241,6 +251,7 @@
     "search_results": "Search Results",
     "no_search_results": "No matching tasks",
     "copy_task_id": "Copy TaskId",
+    "cancel_task": "Cancel Task",
     "delete_task": "Delete Task",
     "searching": "Searching...",
     "mark_all_read": "Mark all as read",
@@ -308,7 +319,8 @@
     "error": {
       "required": "Please fill in all required fields",
       "save_failed": "Save failed",
-      "invalid_domain": "Please enter a valid domain (e.g. gitlab.example.com) without protocol or trailing slash"
+      "invalid_domain": "Please enter a valid domain (e.g. gitlab.example.com or http://gitlab.internal.com)",
+      "gerrit_username_required": "Username is required for Gerrit"
     },
     "modal": {
       "title_edit": "Edit Token",
@@ -317,11 +329,16 @@
     "platform": "Platform",
     "platform_github": "GitHub",
     "platform_gitlab": "GitLab",
+    "platform_gerrit": "Gerrit",
     "domain": "Platform Domain",
+    "username": "Username",
+    "username_placeholder": "Gerrit username",
     "token": {
       "title": "Personal Access Token",
+      "title_gerrit": "HTTP password",
       "placeholder_github": "ghp_xxxxxxxxxxxxxxxxxxxx",
-      "placeholder_gitlab": "glpat-xxxxxxxxxxxxxxxxxxxx"
+      "placeholder_gitlab": "glpat-xxxxxxxxxxxxxxxxxxxx",
+      "placeholder_gerrit": "HTTP password from Gerrit Settings"
     },
     "howto": {
       "step1_visit": "1. Visit",
@@ -334,6 +351,11 @@
         "title": "How to get your GitLab token:",
         "step2": "2. Click \"Add new token\"",
         "step3": "3. Select appropriate scopes and copy the generated token"
+      },
+      "gerrit": {
+        "title": "How to get Gerrit HTTP password:",
+        "step2": "2. Generate a new HTTP password under \"HTTP Credentials\"",
+        "step3": "3. Copy the username and password, and paste them here"
       }
     },
     "saving": "Saving...",

@@ -34,6 +34,7 @@ type TaskContextType = {
   markTaskAsViewed: (taskId: number, status: TaskStatus) => void;
   getUnreadCount: (tasks: Task[]) => number;
   markAllTasksAsViewed: () => void;
+  viewStatusVersion: number;
 };
 
 const TaskContext = createContext<TaskContextType | undefined>(undefined);
@@ -46,6 +47,7 @@ export const TaskContextProvider = ({ children }: { children: ReactNode }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [isSearchResult, setIsSearchResult] = useState<boolean>(false);
+  const [viewStatusVersion, setViewStatusVersion] = useState<number>(0);
 
   // Track task status for notification
   const taskStatusMapRef = useRef<Map<number, TaskStatus>>(new Map());
@@ -59,7 +61,7 @@ export const TaskContextProvider = ({ children }: { children: ReactNode }) => {
   // Batch load specified pages (only responsible for data requests and responses, does not handle loading state)
   const loadPages = async (pagesArr: number[], _append = false) => {
     if (pagesArr.length === 0) return { items: [], hasMore: false };
-    const requests = pagesArr.map(p => taskApis.getTasks({ page: p, limit }));
+    const requests = pagesArr.map(p => taskApis.getTasksLite({ page: p, limit }));
     try {
       const results = await Promise.all(requests);
       const allItems = results.flatMap(res => res.items || []);
@@ -134,7 +136,11 @@ export const TaskContextProvider = ({ children }: { children: ReactNode }) => {
   // Only refresh periodically when there are unfinished tasks
   useEffect(() => {
     const hasIncompleteTasks = tasks.some(
-      task => task.status !== 'COMPLETED' && task.status !== 'FAILED' && task.status !== 'CANCELLED'
+      task =>
+        task.status !== 'COMPLETED' &&
+        task.status !== 'FAILED' &&
+        task.status !== 'CANCELLED' &&
+        task.status !== 'DELETE'
     );
 
     let interval: NodeJS.Timeout | null = null;
@@ -160,7 +166,8 @@ export const TaskContextProvider = ({ children }: { children: ReactNode }) => {
       selectedTaskDetail &&
       (selectedTaskDetail.status === 'COMPLETED' ||
         selectedTaskDetail.status === 'FAILED' ||
-        selectedTaskDetail.status === 'CANCELLED')
+        selectedTaskDetail.status === 'CANCELLED' ||
+        selectedTaskDetail.status === 'DELETE')
     ) {
       return;
     }
@@ -239,6 +246,8 @@ export const TaskContextProvider = ({ children }: { children: ReactNode }) => {
   // Handle marking all tasks as viewed
   const handleMarkAllTasksAsViewed = () => {
     markAllTasksAsViewed(tasks);
+    // Trigger re-render by updating version
+    setViewStatusVersion(prev => prev + 1);
   };
 
   return (
@@ -262,6 +271,7 @@ export const TaskContextProvider = ({ children }: { children: ReactNode }) => {
         markTaskAsViewed,
         getUnreadCount,
         markAllTasksAsViewed: handleMarkAllTasksAsViewed,
+        viewStatusVersion,
       }}
     >
       {children}
