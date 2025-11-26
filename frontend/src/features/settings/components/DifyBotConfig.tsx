@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiClient } from '@/apis/client';
-import { InformationCircleIcon, CheckCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import { InformationCircleIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { useTranslation } from 'react-i18next';
 import {
   Accordion,
@@ -69,9 +69,8 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
       // Extract Dify parameters if exists
       if (env.DIFY_PARAMS) {
         try {
-          const params = typeof env.DIFY_PARAMS === 'string'
-            ? JSON.parse(env.DIFY_PARAMS)
-            : env.DIFY_PARAMS;
+          const params =
+            typeof env.DIFY_PARAMS === 'string' ? JSON.parse(env.DIFY_PARAMS) : env.DIFY_PARAMS;
           setDifyParams(params);
         } catch (e) {
           console.error('Failed to parse DIFY_PARAMS:', e);
@@ -103,10 +102,12 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
           api_key: difyApiKey,
           base_url: difyBaseUrl,
         }),
-        apiClient.post<{ user_input_form?: DifyAppInfo['user_input_form'] }>('/dify/app/parameters', {
-          api_key: difyApiKey,
-          base_url: difyBaseUrl,
-        }).catch(() => ({ user_input_form: [] })), // Fallback if parameters endpoint fails
+        apiClient
+          .post<{ user_input_form?: DifyAppInfo['user_input_form'] }>('/dify/app/parameters', {
+            api_key: difyApiKey,
+            base_url: difyBaseUrl,
+          })
+          .catch(() => ({ user_input_form: [] })), // Fallback if parameters endpoint fails
       ]);
 
       // Merge info and parameters
@@ -127,8 +128,7 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
       toast({
         variant: 'destructive',
         title: t('bot.errors.dify_validation_failed') || 'Failed to validate API key',
-        description:
-          'Please make sure your API key is valid and the base URL is correct.',
+        description: 'Please make sure your API key is valid and the base URL is correct.',
       });
       setIsValidated(false);
       setAppInfo(null);
@@ -162,7 +162,10 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
   }, [difyApiKey, difyBaseUrl]);
 
   const handleOpenDifyDocs = useCallback(() => {
-    window.open('https://docs.dify.ai/guides/application-publishing/developing-with-apis', '_blank');
+    window.open(
+      'https://docs.dify.ai/guides/application-publishing/developing-with-apis',
+      '_blank'
+    );
   }, []);
 
   return (
@@ -289,7 +292,8 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
                     {t('bot.dify_app_parameters') || 'Application Parameters'}
                   </span>
                   <span className="text-xs text-text-muted">
-                    ({appInfo.user_input_form.length} {t('bot.dify_parameters_count') || 'parameters'})
+                    ({appInfo.user_input_form.length}{' '}
+                    {t('bot.dify_parameters_count') || 'parameters'})
                   </span>
                 </div>
               </AccordionTrigger>
@@ -299,9 +303,12 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
                     {t('bot.dify_parameters_hint') ||
                       'Configure the input parameters for this Dify application. These values will be used when executing tasks.'}
                   </p>
-                  {appInfo.user_input_form.map((field) => (
+                  {appInfo.user_input_form.map(field => (
                     <div key={field.variable} className="flex flex-col">
-                      <Label htmlFor={`param-${field.variable}`} className="text-sm font-medium text-text-primary mb-1">
+                      <Label
+                        htmlFor={`param-${field.variable}`}
+                        className="text-sm font-medium text-text-primary mb-1"
+                      >
                         {field.label?.en || field.label?.['en-US'] || field.variable}
                         {field.required && <span className="text-red-400 ml-1">*</span>}
                       </Label>
@@ -310,11 +317,13 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
                         <select
                           id={`param-${field.variable}`}
                           value={difyParams[field.variable] || ''}
-                          onChange={(e) => setDifyParams({ ...difyParams, [field.variable]: e.target.value })}
+                          onChange={e =>
+                            setDifyParams({ ...difyParams, [field.variable]: e.target.value })
+                          }
                           className="w-full px-3 py-2 bg-base rounded-md text-text-primary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm"
                         >
                           <option value="">Select...</option>
-                          {field.options.map((option) => (
+                          {field.options.map(option => (
                             <option key={option} value={option}>
                               {option}
                             </option>
@@ -324,7 +333,9 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
                         <textarea
                           id={`param-${field.variable}`}
                           value={difyParams[field.variable] || ''}
-                          onChange={(e) => setDifyParams({ ...difyParams, [field.variable]: e.target.value })}
+                          onChange={e =>
+                            setDifyParams({ ...difyParams, [field.variable]: e.target.value })
+                          }
                           placeholder={field.label?.en || field.label?.['en-US'] || ''}
                           rows={field.type === 'paragraph' ? 4 : 2}
                           className="w-full px-3 py-2 bg-base rounded-md text-text-primary placeholder:text-text-muted border border-border focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm resize-none"
@@ -334,7 +345,9 @@ const DifyBotConfig: React.FC<DifyBotConfigProps> = ({
                           id={`param-${field.variable}`}
                           type="text"
                           value={difyParams[field.variable] || ''}
-                          onChange={(e) => setDifyParams({ ...difyParams, [field.variable]: e.target.value })}
+                          onChange={e =>
+                            setDifyParams({ ...difyParams, [field.variable]: e.target.value })
+                          }
                           placeholder={field.label?.en || field.label?.['en-US'] || ''}
                           className="w-full px-3 py-2 bg-base rounded-md text-text-primary placeholder:text-text-muted border border-border focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm"
                         />

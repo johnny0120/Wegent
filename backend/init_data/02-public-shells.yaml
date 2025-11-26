@@ -9,9 +9,10 @@ kind: Shell
 metadata:
   name: ClaudeCode
   namespace: default
+  labels:
+    type: local_engine
 spec:
   runtime: ClaudeCode
-  shellType: local_engine
   supportModel: []
 status:
   state: Available
@@ -21,9 +22,10 @@ kind: Shell
 metadata:
   name: Agno
   namespace: default
+  labels:
+    type: local_engine
 spec:
   runtime: Agno
-  shellType: local_engine
   supportModel: []
 status:
   state: Available
@@ -33,9 +35,10 @@ kind: Shell
 metadata:
   name: Dify
   namespace: default
+  labels:
+    type: external_api
 spec:
   runtime: Dify
-  shellType: external_api
   supportModel: []
 status:
   state: Available

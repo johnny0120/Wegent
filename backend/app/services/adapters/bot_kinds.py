@@ -18,6 +18,7 @@ from app.models.public_shell import PublicShell
 from app.schemas.bot import BotCreate, BotUpdate, BotInDB, BotDetail
 from app.schemas.kind import Ghost, Bot, Shell, Model, Team
 from app.services.base import BaseService
+from app.services.adapters.shell_utils import get_shell_type
 from shared.utils.crypto import encrypt_sensitive_data, is_data_encrypted
 
 
@@ -139,8 +140,8 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             is_active=True
         )
         db.add(model)
-
         support_model = []
+        shell_type = "local_engine"  # Default shell type
         if obj_in.agent_name:
             public_shell = db.query(PublicShell).filter(
                 PublicShell.name == obj_in.agent_name,
@@ -150,6 +151,9 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             if public_shell and isinstance(public_shell.json, dict):
                 shell_crd = Shell.model_validate(public_shell.json)
                 support_model = shell_crd.spec.supportModel or []
+                # Get shell type from metadata.labels
+                if shell_crd.metadata.labels and "type" in shell_crd.metadata.labels:
+                    shell_type = shell_crd.metadata.labels["type"]
 
         shell_json = {
             "kind": "Shell",
@@ -157,12 +161,15 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 "runtime": obj_in.agent_name,
                 "supportModel": support_model
             },
-            "status": {
-                "state": "Available"
-            },
             "metadata": {
                 "name": f"{obj_in.name}-shell",
-                "namespace": "default"
+                "namespace": "default",
+                "labels": {
+                    "type": shell_type
+                }
+            },
+            "status": {
+                "state": "Available"
             },
             "apiVersion": "agent.wecode.io/v1"
         }
@@ -340,8 +347,9 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             flag_modified(bot, "json")  # Mark JSON field as modified
 
         if "agent_name" in update_data and shell:
-            # Query public_shells table to get supportModel based on new agent_name
+            # Query public_shells table to get supportModel and shell type based on new agent_name
             support_model = []
+            shell_type = "local_engine"  # Default shell type
             new_agent_name = update_data["agent_name"]
             if new_agent_name:
                 public_shell = db.query(PublicShell).filter(
@@ -350,12 +358,19 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 ).first()
                 
                 if public_shell and isinstance(public_shell.json, dict):
-                    shell_crd = Shell.model_validate(public_shell.json)
-                    support_model = shell_crd.spec.supportModel or []
+                    public_shell_crd = Shell.model_validate(public_shell.json)
+                    support_model = public_shell_crd.spec.supportModel or []
+                    # Get shell type from metadata.labels
+                    if public_shell_crd.metadata.labels and "type" in public_shell_crd.metadata.labels:
+                        shell_type = public_shell_crd.metadata.labels["type"]
 
             shell_crd = Shell.model_validate(shell.json)
             shell_crd.spec.runtime = new_agent_name
             shell_crd.spec.supportModel = support_model
+            # Update shell type in metadata.labels
+            if not shell_crd.metadata.labels:
+                shell_crd.metadata.labels = {}
+            shell_crd.metadata.labels["type"] = shell_type
             shell.json = shell_crd.model_dump()
             flag_modified(shell, "json")  # Mark JSON field as modified
 

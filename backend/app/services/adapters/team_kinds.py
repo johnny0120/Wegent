@@ -18,6 +18,7 @@ from app.models.shared_team import SharedTeam
 from app.schemas.team import TeamCreate, TeamUpdate, TeamInDB, TeamDetail, BotInfo
 from app.schemas.kind import Team, Bot, Ghost, Shell, Model, Task
 from app.services.base import BaseService
+from app.services.adapters.shell_utils import get_shell_type
 from shared.utils.crypto import decrypt_sensitive_data, is_data_encrypted
 
 class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
@@ -593,21 +594,26 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         for bot in bots_in_db:
             bot_crd = Bot.model_validate(bot.json)
 
-            # Get shell to check shell type
-            shell = db.query(Kind).filter(
-                Kind.user_id == user_id,
-                Kind.kind == "Shell",
-                Kind.name == bot_crd.spec.shellRef.name,
-                Kind.namespace == bot_crd.spec.shellRef.namespace,
-                Kind.is_active == True
-            ).first()
+            # Get shell type using utility function
+            shell_type = get_shell_type(
+                db,
+                bot_crd.spec.shellRef.name,
+                bot_crd.spec.shellRef.namespace,
+                user_id
+            )
 
-            if shell:
-                shell_crd = Shell.model_validate(shell.json)
-                # Check if shell is external API type
-                shell_type = shell_crd.spec.shellType if hasattr(shell_crd.spec, 'shellType') else shell_crd.spec.get("shellType", "local_engine")
-
-                if shell_type == "external_api":
+            if shell_type == "external_api":
+                # Get shell for error message
+                shell = db.query(Kind).filter(
+                    Kind.user_id == user_id,
+                    Kind.kind == "Shell",
+                    Kind.name == bot_crd.spec.shellRef.name,
+                    Kind.namespace == bot_crd.spec.shellRef.namespace,
+                    Kind.is_active == True
+                ).first()
+                
+                if shell:
+                    shell_crd = Shell.model_validate(shell.json)
                     # External API shells (like Dify) can only have one bot per team
                     if len(bots) > 1:
                         raise HTTPException(
@@ -704,6 +710,8 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         
         # Convert members to bots format
         bots = []
+        agent_type = None  # Will store the type of the first bot
+        
         for member in team_crd.spec.members:
             # Find bot in kinds table
             bot = db.query(Kind).filter(
@@ -721,6 +729,30 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                     "role": member.role or ""
                 }
                 bots.append(bot_info)
+                
+                # Get agent_type from the first bot's shell
+                if agent_type is None:
+                    bot_crd = Bot.model_validate(bot.json)
+                    shell = db.query(Kind).filter(
+                        Kind.user_id == user_id,
+                        Kind.kind == "Shell",
+                        Kind.name == bot_crd.spec.shellRef.name,
+                        Kind.namespace == bot_crd.spec.shellRef.namespace,
+                        Kind.is_active == True
+                    ).first()
+                    
+                    if shell:
+                        shell_crd = Shell.model_validate(shell.json)
+                        runtime = shell_crd.spec.runtime
+                        # Map runtime to agent type
+                        if runtime == "AgnoShell":
+                            agent_type = "agno"
+                        elif runtime == "ClaudeCodeShell":
+                            agent_type = "claude"
+                        elif runtime == "DifyShell":
+                            agent_type = "dify"
+                        else:
+                            agent_type = runtime.lower().replace("shell", "")
         
         # Convert collaboration model to workflow format
         workflow = {"mode": team_crd.spec.collaborationModel}
@@ -734,6 +766,7 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             "is_active": team.is_active,
             "created_at": team.created_at,
             "updated_at": team.updated_at,
+            "agent_type": agent_type,  # Add agent_type field
         }
 
     def _convert_bot_to_dict(self, bot: Kind, db: Session, user_id: int) -> Dict[str, Any]:
@@ -883,45 +916,75 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
 
             if bot:
                 bot_crd = Bot.model_validate(bot.json)
-                # Check if bot uses external API shell (not AgnoShell or ClaudeCodeShell)
+                # Check if bot uses external API shell
                 shell_name = bot_crd.spec.shellRef.name
+                shell_namespace = bot_crd.spec.shellRef.namespace
+                
                 shell = db.query(Kind).filter(
                     Kind.name == shell_name,
-                    Kind.namespace == bot_crd.spec.shellRef.namespace,
+                    Kind.namespace == shell_namespace,
                     Kind.user_id == original_user_id,
                     Kind.kind == "Shell",
                     Kind.is_active == True
                 ).first()
 
                 if shell:
-                    shell_crd = Shell.model_validate(shell.json)
-                    # Check shell type label
-                    shell_type = shell_crd.metadata.labels.get("type", "local_engine")
+                    # Use utility function to get shell type
+                    shell_type = get_shell_type(
+                        db,
+                        shell_name,
+                        shell_namespace,
+                        original_user_id
+                    )
+                    
+                    print(f"[DEBUG] Bot {bot.name} uses shell {shell_name} with type: {shell_type}")
+                    
                     if shell_type == "external_api":
                         has_external_api_bot = True
                         external_api_bot = bot_crd
+                        print(f"[DEBUG] Found external API bot: {bot.name}")
                         break
 
         if not has_external_api_bot:
+            print("[DEBUG] No external API bot found in team")
             return {
                 "has_parameters": False,
                 "parameters": []
             }
 
-        # Get bot's agent config to extract API credentials
-        bot_spec = external_api_bot.spec
-        agent_config = bot_spec.agentConfig or {}
+        # Get bot's model to extract API credentials
+        model_ref = external_api_bot.spec.modelRef
+        model = db.query(Kind).filter(
+            Kind.user_id == original_user_id,
+            Kind.kind == "Model",
+            Kind.name == model_ref.name,
+            Kind.namespace == model_ref.namespace,
+            Kind.is_active == True
+        ).first()
+        
+        if not model:
+            return {
+                "has_parameters": False,
+                "parameters": []
+            }
+        
+        model_crd = Model.model_validate(model.json)
+        agent_config = model_crd.spec.modelConfig or {}
 
         # Decrypt sensitive data before using
         decrypted_agent_config = self._decrypt_agent_config(agent_config)
         env = decrypted_agent_config.get("env", {})
 
+        print(f"[DEBUG] Model config env keys: {list(env.keys())}")
+
         # For Dify bots, we need to call Dify API to get parameters
-        # But we do this server-side, not exposing Dify-specific logic to frontend
         api_key = env.get("DIFY_API_KEY", "")
         base_url = env.get("DIFY_BASE_URL", "https://api.dify.ai")
 
+        print(f"[DEBUG] API Key present: {bool(api_key)}, Base URL: {base_url}")
+
         if not api_key:
+            print("[DEBUG] No DIFY_API_KEY found in model config")
             return {
                 "has_parameters": False,
                 "parameters": []
@@ -940,22 +1003,38 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                 },
                 timeout=10
             )
-
             if response.status_code == 200:
                 data = response.json()
                 user_input_form = data.get("user_input_form", [])
 
+                # Transform Dify's nested format to flat format expected by frontend
+                # Dify format: [{"text-input": {"variable": "x", ...}}, ...]
+                # Frontend expects: [{"variable": "x", "type": "text-input", ...}, ...]
+                transformed_params = []
+                for item in user_input_form:
+                    if isinstance(item, dict):
+                        # Each item is like {"text-input": {...}} or {"select": {...}}
+                        for param_type, param_data in item.items():
+                            if isinstance(param_data, dict):
+                                # Add type field and flatten
+                                transformed_param = {**param_data, "type": param_type}
+                                transformed_params.append(transformed_param)
+
+                print(f"[DEBUG] Successfully fetched and transformed {len(transformed_params)} parameters from Dify API")
                 return {
-                    "has_parameters": len(user_input_form) > 0,
-                    "parameters": user_input_form
+                    "has_parameters": len(transformed_params) > 0,
+                    "parameters": transformed_params
                 }
             else:
+                print(f"[DEBUG] Dify API returned status {response.status_code}: {response.text}")
                 return {
                     "has_parameters": False,
                     "parameters": []
                 }
         except Exception as e:
-            print(f"Failed to fetch parameters from external API: {e}")
+            print(f"[DEBUG] Failed to fetch parameters from external API: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "has_parameters": False,
                 "parameters": []

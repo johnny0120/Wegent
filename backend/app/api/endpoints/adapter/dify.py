@@ -12,6 +12,7 @@ from app.api.dependencies import get_db
 from app.core import security
 from app.models.user import User
 from shared.logger import setup_logger
+from shared.utils.crypto import decrypt_sensitive_data, is_data_encrypted
 
 logger = setup_logger("dify_api")
 
@@ -44,9 +45,15 @@ def get_dify_app_info(
     """
 
     try:
+        # Decrypt API key if it's encrypted
+        api_key = request.api_key
+        if api_key and is_data_encrypted(api_key):
+            api_key = decrypt_sensitive_data(api_key) or api_key
+            logger.info("Decrypted API key for Dify app info request")
+        
         api_url = f"{request.base_url}/v1/info"
         headers = {
-            "Authorization": f"Bearer {request.api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
 
@@ -105,9 +112,15 @@ def get_dify_app_parameters(
     """
 
     try:
+        # Decrypt API key if it's encrypted
+        api_key = request.api_key
+        if api_key and is_data_encrypted(api_key):
+            api_key = decrypt_sensitive_data(api_key) or api_key
+            logger.info("Decrypted API key for Dify app parameters request")
+        
         api_url = f"{request.base_url}/v1/parameters"
         headers = {
-            "Authorization": f"Bearer {request.api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
 

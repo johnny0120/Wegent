@@ -43,10 +43,14 @@ export interface TeamInputParametersResponse {
   has_parameters: boolean;
   parameters: Array<{
     variable: string;
-    label: Record<string, string>;
+    label: string | Record<string, string>;
     required: boolean;
     type: string;
     options?: string[];
+    max_length?: number;
+    placeholder?: string;
+    default?: string;
+    hint?: string;
   }>;
 }
 

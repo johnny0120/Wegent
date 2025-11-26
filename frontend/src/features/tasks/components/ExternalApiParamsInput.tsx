@@ -4,7 +4,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Label } from '@/components/ui/label';
 import { teamApis } from '@/apis/team';
 import {
@@ -24,10 +24,20 @@ interface ExternalApiParamsInputProps {
 
 interface ParameterField {
   variable: string;
-  label: Record<string, string>;
+  label: string | Record<string, string>;
   required: boolean;
   type: string;
   options?: string[];
+}
+
+/**
+ * Helper function to get label text from either string or i18n object
+ */
+function getLabelText(label: string | Record<string, string>, fallback: string): string {
+  if (typeof label === 'string') {
+    return label;
+  }
+  return label?.en || label?.['en-US'] || label?.['zh-CN'] || fallback;
 }
 
 /**
@@ -46,56 +56,66 @@ export default function ExternalApiParamsInput({
   const [paramValues, setParamValues] = useState<Record<string, string>>(initialParams);
   const [error, setError] = useState<string>('');
 
-  // Fetch parameters from backend using team_id
-  const fetchParameters = useCallback(async () => {
+  // Fetch parameters when teamId changes
+  useEffect(() => {
     if (!teamId) return;
 
-    setIsLoading(true);
-    setError('');
+    let cancelled = false;
 
-    try {
-      const response = await teamApis.getTeamInputParameters(teamId);
+    const fetchParameters = async () => {
+      setIsLoading(true);
+      setError('');
 
-      if (response.has_parameters) {
-        const fields = response.parameters || [];
-        setParamFields(fields);
+      try {
+        const response = await teamApis.getTeamInputParameters(teamId);
 
-        // Initialize param values with existing values or empty strings
-        const initialValues = fields.reduce(
-          (acc, field) => {
-            acc[field.variable] = initialParams[field.variable] || '';
-            return acc;
-          },
-          {} as Record<string, string>
-        );
-        setParamValues(initialValues);
-        onParamsChange(initialValues);
-      } else {
+        if (cancelled) return;
+
+        if (response.has_parameters) {
+          const fields = response.parameters || [];
+          setParamFields(fields);
+
+          // Initialize param values with existing values or empty strings
+          const initialValues = fields.reduce(
+            (acc, field) => {
+              acc[field.variable] = initialParams[field.variable] || '';
+              return acc;
+            },
+            {} as Record<string, string>
+          );
+          setParamValues(initialValues);
+          // Only call onParamsChange if we have actual parameters
+          if (fields.length > 0) {
+            onParamsChange(initialValues);
+          }
+        } else {
+          setParamFields([]);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to fetch team parameters:', err);
+        setError('Failed to load application parameters');
         setParamFields([]);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
-    } catch (err) {
-      console.error('Failed to fetch team parameters:', err);
-      setError('Failed to load application parameters');
-      setParamFields([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [teamId, initialParams, onParamsChange]);
+    };
 
-  // Fetch parameters when component mounts or teamId changes
-  useEffect(() => {
     fetchParameters();
-  }, [fetchParameters]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [teamId]); // Only re-fetch when teamId changes
 
   // Update params when values change
-  const handleParamChange = useCallback(
-    (variable: string, value: string) => {
-      const newValues = { ...paramValues, [variable]: value };
-      setParamValues(newValues);
-      onParamsChange(newValues);
-    },
-    [paramValues, onParamsChange]
-  );
+  const handleParamChange = (variable: string, value: string) => {
+    const newValues = { ...paramValues, [variable]: value };
+    setParamValues(newValues);
+    onParamsChange(newValues);
+  };
 
   if (isLoading) {
     return (
@@ -107,11 +127,7 @@ export default function ExternalApiParamsInput({
   }
 
   if (error) {
-    return (
-      <div className="text-sm text-red-500 py-2">
-        {error}
-      </div>
-    );
+    return <div className="text-sm text-red-500 py-2">{error}</div>;
   }
 
   if (paramFields.length === 0) {
@@ -138,13 +154,13 @@ export default function ExternalApiParamsInput({
                 {t('bot.dify_parameters_hint') ||
                   'Configure the input parameters for this application.'}
               </p>
-              {paramFields.map((field) => (
+              {paramFields.map(field => (
                 <div key={field.variable} className="flex flex-col">
                   <Label
                     htmlFor={`param-${field.variable}`}
                     className="text-sm font-medium text-text-primary mb-1"
                   >
-                    {field.label?.en || field.label?.['en-US'] || field.variable}
+                    {getLabelText(field.label, field.variable)}
                     {field.required && <span className="text-red-400 ml-1">*</span>}
                   </Label>
 
@@ -152,11 +168,11 @@ export default function ExternalApiParamsInput({
                     <select
                       id={`param-${field.variable}`}
                       value={paramValues[field.variable] || ''}
-                      onChange={(e) => handleParamChange(field.variable, e.target.value)}
+                      onChange={e => handleParamChange(field.variable, e.target.value)}
                       className="w-full px-3 py-2 bg-base rounded-md text-text-primary border border-border focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm"
                     >
                       <option value="">Select...</option>
-                      {field.options.map((option) => (
+                      {field.options.map(option => (
                         <option key={option} value={option}>
                           {option}
                         </option>
@@ -166,8 +182,8 @@ export default function ExternalApiParamsInput({
                     <textarea
                       id={`param-${field.variable}`}
                       value={paramValues[field.variable] || ''}
-                      onChange={(e) => handleParamChange(field.variable, e.target.value)}
-                      placeholder={field.label?.en || field.label?.['en-US'] || ''}
+                      onChange={e => handleParamChange(field.variable, e.target.value)}
+                      placeholder={getLabelText(field.label, '')}
                       rows={field.type === 'paragraph' ? 3 : 2}
                       className="w-full px-3 py-2 bg-base rounded-md text-text-primary placeholder:text-text-muted border border-border focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm resize-none"
                     />
@@ -176,8 +192,8 @@ export default function ExternalApiParamsInput({
                       id={`param-${field.variable}`}
                       type="text"
                       value={paramValues[field.variable] || ''}
-                      onChange={(e) => handleParamChange(field.variable, e.target.value)}
-                      placeholder={field.label?.en || field.label?.['en-US'] || ''}
+                      onChange={e => handleParamChange(field.variable, e.target.value)}
+                      placeholder={getLabelText(field.label, '')}
                       className="w-full px-3 py-2 bg-base rounded-md text-text-primary placeholder:text-text-muted border border-border focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm"
                     />
                   )}

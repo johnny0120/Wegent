@@ -16,6 +16,8 @@ from app.schemas.kind import Shell
 def get_shell_type(db: Session, shell_name: str, shell_namespace: str, user_id: int) -> Optional[str]:
     """
     Get the shell type (local_engine or external_api) for a given shell
+    
+    Shell type is stored in metadata.labels.type
 
     Args:
         db: Database session
@@ -39,13 +41,9 @@ def get_shell_type(db: Session, shell_name: str, shell_namespace: str, user_id: 
 
     shell_crd = Shell.model_validate(shell.json)
 
-    # Get shellType from spec, default to local_engine for backward compatibility
-    if hasattr(shell_crd.spec, 'shellType'):
-        return shell_crd.spec.shellType
-
-    # Try dict-style access for backward compatibility
-    if isinstance(shell_crd.spec, dict):
-        return shell_crd.spec.get("shellType", "local_engine")
+    # Get type from metadata.labels, default to local_engine
+    if shell_crd.metadata.labels and "type" in shell_crd.metadata.labels:
+        return shell_crd.metadata.labels["type"]
 
     return "local_engine"
 

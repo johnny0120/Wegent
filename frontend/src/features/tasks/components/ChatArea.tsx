@@ -4,7 +4,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, CircleStop } from 'lucide-react';
 import MessagesArea from './MessagesArea';
 import ChatInput from './ChatInput';
@@ -63,6 +63,11 @@ export default function ChatArea({
 
   // External API parameters state
   const [externalApiParams, setExternalApiParams] = useState<Record<string, string>>({});
+
+  // Memoize the params change handler to prevent infinite re-renders
+  const handleExternalApiParamsChange = useCallback((params: Record<string, string>) => {
+    setExternalApiParams(params);
+  }, []);
 
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -459,7 +464,7 @@ export default function ChatArea({
                   <div className="mb-4">
                     <ExternalApiParamsInput
                       teamId={selectedTeam.id}
-                      onParamsChange={setExternalApiParams}
+                      onParamsChange={handleExternalApiParamsChange}
                       initialParams={externalApiParams}
                     />
                   </div>
