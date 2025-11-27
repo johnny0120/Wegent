@@ -19,7 +19,9 @@ import { Loader2 } from 'lucide-react';
 interface ExternalApiParamsInputProps {
   teamId: number;
   onParamsChange: (params: Record<string, string>) => void;
+  onAppModeChange?: (appMode: string | undefined) => void;
   initialParams?: Record<string, string>;
+  forceRefresh?: boolean; // Force refresh from API, bypass cache
 }
 
 interface ParameterField {
@@ -28,6 +30,15 @@ interface ParameterField {
   required: boolean;
   type: string;
   options?: string[];
+}
+
+// Cache expiration time: 30 minutes
+const CACHE_EXPIRATION_MS = 30 * 60 * 1000;
+
+interface CachedParametersData {
+  parameters: ParameterField[];
+  app_mode?: string;
+  timestamp: number;
 }
 
 /**
@@ -41,6 +52,56 @@ function getLabelText(label: string | Record<string, string>, fallback: string):
 }
 
 /**
+ * Get cached parameters from localStorage
+ */
+function getCachedParameters(teamId: number): CachedParametersData | null {
+  try {
+    const cacheKey = `team_${teamId}_api_params`;
+    const cached = localStorage.getItem(cacheKey);
+    if (!cached) return null;
+
+    const data: CachedParametersData = JSON.parse(cached);
+    const now = Date.now();
+
+    // Check if cache is expired (30 minutes)
+    if (now - data.timestamp > CACHE_EXPIRATION_MS) {
+      localStorage.removeItem(cacheKey);
+      return null;
+    }
+
+    // Refresh timestamp on read
+    data.timestamp = now;
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+
+    return data;
+  } catch (e) {
+    console.error('Failed to get cached parameters:', e);
+    return null;
+  }
+}
+
+/**
+ * Save parameters to localStorage cache
+ */
+function setCachedParameters(
+  teamId: number,
+  parameters: ParameterField[],
+  app_mode?: string
+): void {
+  try {
+    const cacheKey = `team_${teamId}_api_params`;
+    const data: CachedParametersData = {
+      parameters,
+      app_mode,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+  } catch (e) {
+    console.error('Failed to cache parameters:', e);
+  }
+}
+
+/**
  * Generic external API parameters input component
  * Works with any external API type (Dify, etc.) without exposing implementation details
  * Parameters are fetched through team API based on team_id
@@ -48,7 +109,9 @@ function getLabelText(label: string | Record<string, string>, fallback: string):
 export default function ExternalApiParamsInput({
   teamId,
   onParamsChange,
+  onAppModeChange,
   initialParams = {},
+  forceRefresh = false,
 }: ExternalApiParamsInputProps) {
   const { t } = useTranslation('common');
   const [isLoading, setIsLoading] = useState(false);
@@ -56,17 +119,64 @@ export default function ExternalApiParamsInput({
   const [paramValues, setParamValues] = useState<Record<string, string>>(initialParams);
   const [error, setError] = useState<string>('');
 
-  // Fetch parameters when teamId changes
+  // Fetch parameters when teamId changes or forceRefresh is triggered
   useEffect(() => {
     if (!teamId) return;
 
     let cancelled = false;
 
+    // Reset loading state at the start of each effect
+    setIsLoading(false);
+    setError('');
+
     const fetchParameters = async () => {
+      // Try to load from cache first (unless forceRefresh is true)
+      if (!forceRefresh) {
+        const cachedData = getCachedParameters(teamId);
+        if (cachedData) {
+          console.log('[ExternalApiParamsInput] Using cached parameters for team', teamId);
+          setParamFields(cachedData.parameters);
+
+          // Pass app_mode to parent component
+          if (onAppModeChange) {
+            onAppModeChange(cachedData.app_mode);
+          }
+
+          // Load user input values from localStorage
+          const userValuesCacheKey = `team_${teamId}_params`;
+          let cachedParams: Record<string, string> = {};
+          try {
+            const cached = localStorage.getItem(userValuesCacheKey);
+            if (cached) {
+              cachedParams = JSON.parse(cached);
+            }
+          } catch (e) {
+            console.error('Failed to load cached user values:', e);
+          }
+
+          // Initialize param values with priority: initialParams > cachedParams > empty
+          const initialValues = cachedData.parameters.reduce(
+            (acc, field) => {
+              acc[field.variable] =
+                initialParams[field.variable] || cachedParams[field.variable] || '';
+              return acc;
+            },
+            {} as Record<string, string>
+          );
+          setParamValues(initialValues);
+          if (cachedData.parameters.length > 0) {
+            onParamsChange(initialValues);
+          }
+          return;
+        }
+      }
+
+      // Fetch from API
       setIsLoading(true);
       setError('');
 
       try {
+        console.log('[ExternalApiParamsInput] Fetching parameters from API for team', teamId);
         const response = await teamApis.getTeamInputParameters(teamId);
 
         if (cancelled) return;
@@ -75,10 +185,31 @@ export default function ExternalApiParamsInput({
           const fields = response.parameters || [];
           setParamFields(fields);
 
-          // Initialize param values with existing values or empty strings
+          // Cache the API response
+          setCachedParameters(teamId, fields, response.app_mode);
+
+          // Pass app_mode to parent component if available
+          if (onAppModeChange) {
+            onAppModeChange(response.app_mode);
+          }
+
+          // Load user input values from localStorage
+          const userValuesCacheKey = `team_${teamId}_params`;
+          let cachedParams: Record<string, string> = {};
+          try {
+            const cached = localStorage.getItem(userValuesCacheKey);
+            if (cached) {
+              cachedParams = JSON.parse(cached);
+            }
+          } catch (e) {
+            console.error('Failed to load cached user values:', e);
+          }
+
+          // Initialize param values with priority: initialParams > cachedParams > empty
           const initialValues = fields.reduce(
             (acc, field) => {
-              acc[field.variable] = initialParams[field.variable] || '';
+              acc[field.variable] =
+                initialParams[field.variable] || cachedParams[field.variable] || '';
               return acc;
             },
             {} as Record<string, string>
@@ -90,6 +221,12 @@ export default function ExternalApiParamsInput({
           }
         } else {
           setParamFields([]);
+          setParamValues({});
+          // Clear params when no parameters are available
+          onParamsChange({});
+          if (onAppModeChange) {
+            onAppModeChange(response.app_mode);
+          }
         }
       } catch (err) {
         if (cancelled) return;
@@ -108,13 +245,22 @@ export default function ExternalApiParamsInput({
     return () => {
       cancelled = true;
     };
-  }, [teamId]); // Only re-fetch when teamId changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, forceRefresh]); // Re-fetch when teamId or forceRefresh changes
 
-  // Update params when values change
+  // Update params when values change and save to localStorage
   const handleParamChange = (variable: string, value: string) => {
     const newValues = { ...paramValues, [variable]: value };
     setParamValues(newValues);
     onParamsChange(newValues);
+
+    // Save to localStorage for this team
+    const cacheKey = `team_${teamId}_params`;
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(newValues));
+    } catch (e) {
+      console.error('Failed to save params to localStorage:', e);
+    }
   };
 
   if (isLoading) {

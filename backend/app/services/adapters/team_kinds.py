@@ -990,9 +990,27 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                 "parameters": []
             }
 
-        # Call external API to get parameter schema
+        # Call external API to get parameter schema and app info
         try:
             import requests
+
+            # Get app info to retrieve mode
+            app_mode = None
+            try:
+                info_response = requests.get(
+                    f"{base_url}/v1/info",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=10
+                )
+                if info_response.status_code == 200:
+                    info_data = info_response.json()
+                    app_mode = info_data.get("mode")
+                    print(f"[DEBUG] Retrieved Dify app mode: {app_mode}")
+            except Exception as e:
+                print(f"[DEBUG] Failed to fetch app info: {e}")
 
             # Get app parameters
             response = requests.get(
@@ -1019,24 +1037,36 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                                 # Add type field and flatten
                                 transformed_param = {**param_data, "type": param_type}
                                 transformed_params.append(transformed_param)
-
+                
                 print(f"[DEBUG] Successfully fetched and transformed {len(transformed_params)} parameters from Dify API")
-                return {
-                    "has_parameters": len(transformed_params) > 0,
+                # has_parameters is true as long as the API request succeeds (external API bot exists)
+                result = {
+                    "has_parameters": True,
                     "parameters": transformed_params
                 }
+                
+                # Add app_mode if available
+                if app_mode:
+                    result["app_mode"] = app_mode
+                
+                return result
             else:
                 print(f"[DEBUG] Dify API returned status {response.status_code}: {response.text}")
-                return {
-                    "has_parameters": False,
+                # has_parameters is true as long as external API bot exists, even if parameters API fails
+                result = {
+                    "has_parameters": True,
                     "parameters": []
                 }
+                if app_mode:
+                    result["app_mode"] = app_mode
+                return result
         except Exception as e:
             print(f"[DEBUG] Failed to fetch parameters from external API: {e}")
             import traceback
             traceback.print_exc()
+            # has_parameters is true as long as external API bot exists, even if API call fails
             return {
-                "has_parameters": False,
+                "has_parameters": True,
                 "parameters": []
             }
 

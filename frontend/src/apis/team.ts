@@ -52,6 +52,7 @@ export interface TeamInputParametersResponse {
     default?: string;
     hint?: string;
   }>;
+  app_mode?: string; // Dify app mode: 'chat', 'chatflow', 'workflow', 'completion', 'agent'
 }
 
 export const teamApis = {
