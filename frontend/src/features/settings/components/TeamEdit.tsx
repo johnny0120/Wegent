@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '@/components/ui/switch';
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
 import { RiRobot2Line } from 'react-icons/ri';
@@ -24,6 +25,7 @@ import { TeamMode, getFilteredBotsForMode, AgentType } from './team-modes';
 import { createTeam, updateTeam } from '../services/teams';
 import TeamEditDrawer from './TeamEditDrawer';
 import { useTranslation } from '@/hooks/useTranslation';
+import IconPicker from '@/components/ui/icon-picker';
 
 // Import mode-specific editors
 import SoloModeEditor from './team-modes/SoloModeEditor';
@@ -66,6 +68,8 @@ export default function TeamEdit(props: TeamEditProps) {
   // Left column: Team Name, Mode, Description
   const [name, setName] = useState('');
   const [mode, setMode] = useState<TeamMode>('solo');
+  const [icon, setIcon] = useState<string>('');
+  const [isRecommended, setIsRecommended] = useState(false);
 
   // Right column: LeaderBot (single select), Bots Transfer (multi-select)
   // Use string key for antd Transfer, stringify bot.id here
@@ -199,6 +203,8 @@ export default function TeamEdit(props: TeamEditProps) {
       setName(formTeam.name);
       const m = (formTeam.workflow?.mode as TeamMode) || 'pipeline';
       setMode(m);
+      setIcon(formTeam.icon || '');
+      setIsRecommended(formTeam.is_recommended || false);
       const ids = formTeam.bots.map(b => String(b.bot_id));
       setSelectedBotKeys(ids);
       const leaderBot = formTeam.bots.find(b => b.role === 'leader');
@@ -206,6 +212,8 @@ export default function TeamEdit(props: TeamEditProps) {
     } else {
       setName('');
       setMode('solo');
+      setIcon('');
+      setIsRecommended(false);
       setSelectedBotKeys([]);
       setLeaderBotId(null);
     }
@@ -395,6 +403,8 @@ export default function TeamEdit(props: TeamEditProps) {
           name: name.trim(),
           workflow,
           bots: botsData,
+          icon: icon || undefined,
+          is_recommended: isRecommended,
         });
         setTeams(prev => prev.map(team => (team.id === updated.id ? updated : team)));
       } else {
@@ -402,6 +412,8 @@ export default function TeamEdit(props: TeamEditProps) {
           name: name.trim(),
           workflow,
           bots: botsData,
+          icon: icon || undefined,
+          is_recommended: isRecommended,
         });
         setTeams(prev => [created, ...prev]);
       }
@@ -468,19 +480,33 @@ export default function TeamEdit(props: TeamEditProps) {
       <div className="w-full flex flex-col lg:flex-row gap-6 items-stretch flex-1 py-0 min-h-0 px-4 md:px-0 overflow-hidden">
         {/* Left column */}
         <div className="w-full lg:w-2/5 xl:w-1/3 min-w-0 flex flex-col space-y-5 min-h-0 flex-shrink-0">
-          {/* Team Name */}
+          {/* Team Name with Icon Picker */}
           <div className="flex flex-col">
             <div className="flex items-center mb-1">
               <label className="block text-lg font-semibold text-text-primary">
                 {t('team.name')} <span className="text-red-400">*</span>
               </label>
             </div>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder={t('team.name_placeholder')}
-              className="w-full px-4 py-1 bg-base rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent text-base h-9"
+            <div className="flex items-center gap-2">
+              <IconPicker value={icon} onChange={setIcon} teamName={name} />
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder={t('team.name_placeholder')}
+                className="flex-1 px-4 py-1 bg-base rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent text-base h-9"
+              />
+            </div>
+          </div>
+
+          {/* Set as Recommended Switch */}
+          <div className="flex items-center justify-between py-2 px-1">
+            <label className="text-sm font-medium text-text-secondary">
+              {t('teams.set_recommended')}
+            </label>
+            <Switch
+              checked={isRecommended}
+              onCheckedChange={setIsRecommended}
             />
           </div>
 

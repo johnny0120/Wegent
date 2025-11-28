@@ -177,6 +177,8 @@ class TeamSpec(BaseModel):
     """Team specification"""
     members: List[TeamMember]
     collaborationModel: str  # pipeline、route、coordinate、collaborate
+    icon: Optional[str] = None  # Lucide icon name (e.g., "Users", "Bot", "Zap")
+    isRecommended: bool = False  # Whether this team is recommended
 
 
 class TeamStatus(Status):

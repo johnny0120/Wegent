@@ -34,6 +34,8 @@ class TeamBase(BaseModel):
     bots: List[BotInfo]
     workflow: Optional[dict[str, Any]] = None
     is_active: bool = True
+    icon: Optional[str] = None  # Lucide icon name (e.g., "Users", "Bot", "Zap")
+    is_recommended: bool = False  # Whether this team is recommended
 
 class TeamCreate(TeamBase):
     """Team creation model"""
@@ -45,6 +47,8 @@ class TeamUpdate(BaseModel):
     bots: Optional[List[BotInfo]] = None
     workflow: Optional[dict[str, Any]] = None
     is_active: Optional[bool] = None
+    icon: Optional[str] = None  # Lucide icon name
+    is_recommended: Optional[bool] = None  # Whether this team is recommended
 
 class TeamInDB(TeamBase):
     """Database team model"""
@@ -55,6 +59,7 @@ class TeamInDB(TeamBase):
     user: Optional[dict[str, Any]] = None
     share_status: int = 0  # 0-private, 1-sharing, 2-shared from others
     agent_type: Optional[str] = None  # agno, claude, dify, etc.
+    is_favorited: bool = False  # Whether current user has favorited this team
 
     class Config:
         from_attributes = True
@@ -71,6 +76,9 @@ class TeamDetail(BaseModel):
     updated_at: datetime
     user: Optional[UserInDB] = None
     share_status: int = 0  # 0-private, 1-sharing, 2-shared from others
+    icon: Optional[str] = None  # Lucide icon name
+    is_recommended: bool = False  # Whether this team is recommended
+    is_favorited: bool = False  # Whether current user has favorited this team
 
     class Config:
         from_attributes = True
