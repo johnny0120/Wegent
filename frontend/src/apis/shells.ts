@@ -38,6 +38,7 @@ export interface ShellUpdateRequest {
 export interface ImageValidationRequest {
   image: string
   shellType: string // e.g., "ClaudeCode", "Agno"
+  shellName?: string // Optional shell name for tracking
 }
 
 export interface ImageCheckResult {
@@ -48,9 +49,13 @@ export interface ImageCheckResult {
 }
 
 export interface ImageValidationResponse {
-  valid: boolean
-  checks: ImageCheckResult[]
-  errors: string[]
+  status: 'submitted' | 'skipped' | 'error'
+  message: string
+  validationTaskId?: number | null
+  // For immediate results (e.g., Dify skip)
+  valid?: boolean | null
+  checks?: ImageCheckResult[] | null
+  errors?: string[] | null
 }
 
 // Shell Services

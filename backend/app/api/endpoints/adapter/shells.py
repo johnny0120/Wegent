@@ -56,6 +56,7 @@ class ImageValidationRequest(BaseModel):
 
     image: str
     shellType: str  # e.g., "ClaudeCode", "Agno"
+    shellName: Optional[str] = None  # Optional shell name for tracking
 
 
 class ImageCheckResult(BaseModel):
@@ -68,11 +69,15 @@ class ImageCheckResult(BaseModel):
 
 
 class ImageValidationResponse(BaseModel):
-    """Response for image validation"""
+    """Response for image validation - async mode returns task submission status"""
 
-    valid: bool
-    checks: List[ImageCheckResult]
-    errors: List[str]
+    status: str  # 'submitted', 'skipped', 'error'
+    message: str
+    validationTaskId: Optional[int] = None
+    # For immediate results (e.g., Dify skip)
+    valid: Optional[bool] = None
+    checks: Optional[List[ImageCheckResult]] = None
+    errors: Optional[List[str]] = None
 
 
 def _public_shell_to_unified(shell: PublicShell) -> UnifiedShell:
@@ -414,14 +419,18 @@ def validate_image(
     """
     Validate if a base image is compatible with a specific shell type.
 
-    This endpoint proxies the validation request to Executor Manager, which:
-    - Pulls the image and runs a temporary container to check dependencies
+    This endpoint submits an async validation task to Executor Manager:
+    - The validation runs inside the target image container
+    - Results are returned via callback mechanism
+    - Frontend should poll or use WebSocket to get final results
+
+    Validation checks:
     - ClaudeCode: Node.js 20.x, claude-code CLI, SQLite 3.50+, Python 3.12
     - Agno: Python 3.12
-    - Dify: No check needed (external_api type)
+    - Dify: No check needed (external_api type, returns immediately)
 
-    Note: Validation is performed by Executor Manager to support various deployment
-    modes (Docker, Kubernetes) where the backend may not have direct Docker access.
+    Note: Validation is asynchronous to support various deployment modes
+    (Docker, Kubernetes) and to perform validation inside the actual container.
     """
     import os
 
@@ -430,12 +439,14 @@ def validate_image(
     shell_type = request.shellType
     image = request.image
 
-    # Dify doesn't need validation
+    # Dify doesn't need validation - return immediately
     if shell_type == "Dify":
         return ImageValidationResponse(
+            status="skipped",
+            message="Dify is an external_api type and doesn't require image validation",
             valid=True,
             checks=[],
-            errors=["Dify is an external_api type and doesn't require image validation"],
+            errors=[],
         )
 
     # Get executor manager URL from environment
@@ -443,63 +454,64 @@ def validate_image(
     validate_url = f"{executor_manager_url}/executor-manager/images/validate"
 
     try:
-        logger.info(f"Forwarding image validation to executor manager: {image}")
+        logger.info(f"Submitting image validation task to executor manager: {image}")
 
         # Call executor manager's validate-image API
-        with httpx.Client(timeout=360.0) as client:  # 6 minutes timeout
+        with httpx.Client(timeout=30.0) as client:  # Short timeout since this just submits a task
             response = client.post(
                 validate_url,
-                json={"image": image, "shell_type": shell_type},
+                json={
+                    "image": image,
+                    "shell_type": shell_type,
+                    "shell_name": request.shellName or "",
+                },
             )
 
         if response.status_code != 200:
             logger.error(
-                f"Executor manager validation failed: {response.status_code} {response.text}"
+                f"Executor manager validation request failed: {response.status_code} {response.text}"
             )
             return ImageValidationResponse(
+                status="error",
+                message=f"Failed to submit validation task: {response.text}",
                 valid=False,
-                checks=[],
                 errors=[f"Executor manager error: {response.text}"],
             )
 
         result = response.json()
-        logger.info(f"Image validation result from executor manager: valid={result.get('valid')}")
+        logger.info(f"Validation task submission result: status={result.get('status')}")
 
-        # Convert result to response model
-        checks = [
-            ImageCheckResult(
-                name=c.get("name", ""),
-                version=c.get("version"),
-                status=c.get("status", "fail"),
-                message=c.get("message"),
-            )
-            for c in result.get("checks", [])
-        ]
-
+        # Return the submission status
         return ImageValidationResponse(
-            valid=result.get("valid", False),
-            checks=checks,
-            errors=result.get("errors", []),
+            status=result.get("status", "error"),
+            message=result.get("message", ""),
+            validationTaskId=result.get("validation_task_id"),
+            valid=result.get("valid"),
+            checks=None,
+            errors=result.get("errors"),
         )
 
     except httpx.TimeoutException:
-        logger.error(f"Timeout calling executor manager for image validation: {image}")
+        logger.error(f"Timeout submitting validation task for image: {image}")
         return ImageValidationResponse(
+            status="error",
+            message="Request timed out while submitting validation task",
             valid=False,
-            checks=[],
-            errors=["Validation request timed out. The image may be large or slow to pull."],
+            errors=["Validation request timed out"],
         )
     except httpx.RequestError as e:
         logger.error(f"Error calling executor manager: {e}")
         return ImageValidationResponse(
+            status="error",
+            message=f"Failed to connect to executor manager: {str(e)}",
             valid=False,
-            checks=[],
-            errors=[f"Failed to connect to executor manager: {str(e)}"],
+            errors=[f"Connection error: {str(e)}"],
         )
     except Exception as e:
         logger.error(f"Image validation error: {e}")
         return ImageValidationResponse(
+            status="error",
+            message=f"Validation error: {str(e)}",
             valid=False,
-            checks=[],
-            errors=[f"Validation error: {str(e)}"],
+            errors=[str(e)],
         )

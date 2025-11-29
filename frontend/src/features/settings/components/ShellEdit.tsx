@@ -37,10 +37,12 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
   const [baseImage, setBaseImage] = useState(shell?.baseImage || '')
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
-  const [validationResult, setValidationResult] = useState<{
-    valid: boolean
-    checks: ImageCheckResult[]
-    errors: string[]
+  const [validationStatus, setValidationStatus] = useState<{
+    status: 'submitted' | 'skipped' | 'error' | 'success' | 'failed'
+    message: string
+    valid?: boolean
+    checks?: ImageCheckResult[]
+    errors?: string[]
   } | null>(null)
 
   // Available base shells (public local_engine shells)
@@ -81,27 +83,61 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
     }
 
     setValidating(true)
-    setValidationResult(null)
+    setValidationStatus(null)
 
     try {
       const result = await shellApis.validateImage({
         image: baseImage,
         shellType: selectedBaseShell.runtime,
+        shellName: name || undefined,
       })
-      setValidationResult(result)
 
-      if (result.valid) {
-        toast({
-          title: t('shells.validation_success'),
+      // Handle different response statuses
+      if (result.status === 'skipped') {
+        // Dify type - validation not needed
+        setValidationStatus({
+          status: 'success',
+          message: result.message,
+          valid: true,
+          checks: [],
+          errors: [],
         })
-      } else {
+        toast({
+          title: t('shells.validation_skipped'),
+          description: result.message,
+        })
+      } else if (result.status === 'submitted') {
+        // Async validation task submitted
+        setValidationStatus({
+          status: 'submitted',
+          message: result.message,
+          valid: undefined,
+        })
+        toast({
+          title: t('shells.validation_submitted'),
+          description: t('shells.validation_async_hint'),
+        })
+      } else if (result.status === 'error') {
+        // Error submitting validation
+        setValidationStatus({
+          status: 'error',
+          message: result.message,
+          valid: false,
+          errors: result.errors || [],
+        })
         toast({
           variant: 'destructive',
           title: t('shells.validation_failed'),
-          description: result.errors.join(', ') || t('shells.errors.image_not_compatible'),
+          description: result.message,
         })
       }
     } catch (error) {
+      setValidationStatus({
+        status: 'error',
+        message: (error as Error).message,
+        valid: false,
+        errors: [(error as Error).message],
+      })
       toast({
         variant: 'destructive',
         title: t('shells.validation_failed'),
@@ -300,7 +336,7 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
               value={baseImage}
               onChange={e => {
                 setBaseImage(e.target.value)
-                setValidationResult(null) // Clear validation result on change
+                setValidationStatus(null) // Clear validation status on change
               }}
               placeholder="ghcr.io/your-org/your-image:latest"
               className="bg-base flex-1"
@@ -320,36 +356,45 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
           </div>
           <p className="text-xs text-text-muted">{t('shells.base_image_hint')}</p>
 
-          {/* Validation Results */}
-          {validationResult && (
+          {/* Validation Status */}
+          {validationStatus && (
             <div
               className={`mt-3 p-3 rounded-md border ${
-                validationResult.valid
+                validationStatus.status === 'success' || validationStatus.valid === true
                   ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
-                  : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
+                  : validationStatus.status === 'submitted'
+                    ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800'
+                    : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
               }`}
             >
               <div className="flex items-center gap-2 mb-2">
-                {validationResult.valid ? (
+                {validationStatus.status === 'success' || validationStatus.valid === true ? (
                   <CheckCircleIcon className="w-5 h-5 text-green-600 dark:text-green-400" />
+                ) : validationStatus.status === 'submitted' ? (
+                  <Loader2 className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
                 ) : (
                   <XCircleIcon className="w-5 h-5 text-red-600 dark:text-red-400" />
                 )}
                 <span
                   className={`font-medium ${
-                    validationResult.valid
+                    validationStatus.status === 'success' || validationStatus.valid === true
                       ? 'text-green-700 dark:text-green-300'
-                      : 'text-red-700 dark:text-red-300'
+                      : validationStatus.status === 'submitted'
+                        ? 'text-blue-700 dark:text-blue-300'
+                        : 'text-red-700 dark:text-red-300'
                   }`}
                 >
-                  {validationResult.valid
+                  {validationStatus.status === 'success'
                     ? t('shells.validation_passed')
-                    : t('shells.validation_not_passed')}
+                    : validationStatus.status === 'submitted'
+                      ? t('shells.validation_in_progress')
+                      : t('shells.validation_not_passed')}
                 </span>
               </div>
-              {validationResult.checks.length > 0 && (
-                <ul className="space-y-1 text-sm">
-                  {validationResult.checks.map((check, index) => (
+              <p className="text-sm text-text-secondary">{validationStatus.message}</p>
+              {validationStatus.checks && validationStatus.checks.length > 0 && (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {validationStatus.checks.map((check, index) => (
                     <li key={index} className="flex items-center gap-2">
                       {check.status === 'pass' ? (
                         <CheckCircleIcon className="w-4 h-4 text-green-600 dark:text-green-400" />
@@ -365,9 +410,9 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
                   ))}
                 </ul>
               )}
-              {validationResult.errors.length > 0 && (
+              {validationStatus.errors && validationStatus.errors.length > 0 && (
                 <ul className="mt-2 space-y-1 text-sm text-red-600 dark:text-red-400">
-                  {validationResult.errors.map((error, index) => (
+                  {validationStatus.errors.map((error, index) => (
                     <li key={index}>{error}</li>
                   ))}
                 </ul>
