@@ -168,7 +168,7 @@ const ShellList: React.FC = () => {
                               {getShellTypeLabel(shell.shellType)}
                             </Tag>
                             {shell.baseImage && (
-                              <Tag variant="outline" className="hidden md:inline-flex text-xs truncate max-w-[200px]">
+                              <Tag variant="default" className="hidden md:inline-flex text-xs truncate max-w-[200px]">
                                 {shell.baseImage}
                               </Tag>
                             )}

@@ -414,14 +414,18 @@ def validate_image(
     """
     Validate if a base image is compatible with a specific shell type.
 
-    This endpoint pulls the image and checks for required dependencies:
+    This endpoint proxies the validation request to Executor Manager, which:
+    - Pulls the image and runs a temporary container to check dependencies
     - ClaudeCode: Node.js 20.x, claude-code CLI, SQLite 3.50+, Python 3.12
     - Agno: Python 3.12
     - Dify: No check needed (external_api type)
 
-    Note: Only supports public image registries.
+    Note: Validation is performed by Executor Manager to support various deployment
+    modes (Docker, Kubernetes) where the backend may not have direct Docker access.
     """
-    import subprocess
+    import os
+
+    import httpx
 
     shell_type = request.shellType
     image = request.image
@@ -434,164 +438,68 @@ def validate_image(
             errors=["Dify is an external_api type and doesn't require image validation"],
         )
 
-    # Define checks based on shell type
-    checks_config = {
-        "ClaudeCode": [
-            {
-                "name": "node",
-                "command": "node --version",
-                "version_regex": r"v(\d+\.\d+\.\d+)",
-                "min_version": "20.0.0",
-            },
-            {
-                "name": "claude-code",
-                "command": "claude --version 2>/dev/null || echo 'not found'",
-                "version_regex": r"(\d+\.\d+\.\d+)",
-                "min_version": None,
-            },
-            {
-                "name": "sqlite",
-                "command": "sqlite3 --version",
-                "version_regex": r"(\d+\.\d+\.\d+)",
-                "min_version": "3.50.0",
-            },
-            {
-                "name": "python",
-                "command": "python3 --version",
-                "version_regex": r"Python (\d+\.\d+\.\d+)",
-                "min_version": "3.12.0",
-            },
-        ],
-        "Agno": [
-            {
-                "name": "python",
-                "command": "python3 --version",
-                "version_regex": r"Python (\d+\.\d+\.\d+)",
-                "min_version": "3.12.0",
-            },
-        ],
-    }
-
-    if shell_type not in checks_config:
-        return ImageValidationResponse(
-            valid=False, checks=[], errors=[f"Unknown shell type: {shell_type}"]
-        )
-
-    checks_to_run = checks_config[shell_type]
-    results = []
-    errors = []
-    all_passed = True
+    # Get executor manager URL from environment
+    executor_manager_url = os.getenv("EXECUTOR_MANAGER_URL", "http://localhost:8001")
+    validate_url = f"{executor_manager_url}/executor-manager/images/validate"
 
     try:
-        # Pull the image first (with timeout)
-        logger.info(f"Pulling image {image} for validation...")
-        pull_result = subprocess.run(
-            ["docker", "pull", image],
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minutes timeout for pull
-        )
-        if pull_result.returncode != 0:
+        logger.info(f"Forwarding image validation to executor manager: {image}")
+
+        # Call executor manager's validate-image API
+        with httpx.Client(timeout=360.0) as client:  # 6 minutes timeout
+            response = client.post(
+                validate_url,
+                json={"image": image, "shell_type": shell_type},
+            )
+
+        if response.status_code != 200:
+            logger.error(
+                f"Executor manager validation failed: {response.status_code} {response.text}"
+            )
             return ImageValidationResponse(
                 valid=False,
                 checks=[],
-                errors=[f"Failed to pull image: {pull_result.stderr}"],
+                errors=[f"Executor manager error: {response.text}"],
             )
 
-        # Run checks
-        for check in checks_to_run:
-            try:
-                result = subprocess.run(
-                    [
-                        "docker",
-                        "run",
-                        "--rm",
-                        image,
-                        "sh",
-                        "-c",
-                        check["command"],
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
+        result = response.json()
+        logger.info(f"Image validation result from executor manager: valid={result.get('valid')}")
 
-                output = result.stdout.strip()
-                if result.returncode != 0 or "not found" in output.lower():
-                    results.append(
-                        ImageCheckResult(
-                            name=check["name"],
-                            status="fail",
-                            message=f"Command failed or not found",
-                        )
-                    )
-                    all_passed = False
-                    continue
+        # Convert result to response model
+        checks = [
+            ImageCheckResult(
+                name=c.get("name", ""),
+                version=c.get("version"),
+                status=c.get("status", "fail"),
+                message=c.get("message"),
+            )
+            for c in result.get("checks", [])
+        ]
 
-                # Extract version
-                import re as re_module
-
-                version_match = re_module.search(check["version_regex"], output)
-                if version_match:
-                    version = version_match.group(1)
-                    # Check minimum version if specified
-                    if check["min_version"]:
-                        from packaging import version as pkg_version
-
-                        try:
-                            if pkg_version.parse(version) < pkg_version.parse(
-                                check["min_version"]
-                            ):
-                                results.append(
-                                    ImageCheckResult(
-                                        name=check["name"],
-                                        version=version,
-                                        status="fail",
-                                        message=f"Version {version} < required {check['min_version']}",
-                                    )
-                                )
-                                all_passed = False
-                                continue
-                        except Exception:
-                            pass  # Skip version comparison on error
-
-                    results.append(
-                        ImageCheckResult(
-                            name=check["name"], version=version, status="pass"
-                        )
-                    )
-                else:
-                    results.append(
-                        ImageCheckResult(
-                            name=check["name"],
-                            status="pass",
-                            message="Detected but version not parsed",
-                        )
-                    )
-
-            except subprocess.TimeoutExpired:
-                results.append(
-                    ImageCheckResult(
-                        name=check["name"], status="fail", message="Check timed out"
-                    )
-                )
-                all_passed = False
-            except Exception as e:
-                results.append(
-                    ImageCheckResult(
-                        name=check["name"], status="fail", message=str(e)
-                    )
-                )
-                all_passed = False
-
-    except subprocess.TimeoutExpired:
         return ImageValidationResponse(
-            valid=False, checks=results, errors=["Image pull timed out"]
+            valid=result.get("valid", False),
+            checks=checks,
+            errors=result.get("errors", []),
+        )
+
+    except httpx.TimeoutException:
+        logger.error(f"Timeout calling executor manager for image validation: {image}")
+        return ImageValidationResponse(
+            valid=False,
+            checks=[],
+            errors=["Validation request timed out. The image may be large or slow to pull."],
+        )
+    except httpx.RequestError as e:
+        logger.error(f"Error calling executor manager: {e}")
+        return ImageValidationResponse(
+            valid=False,
+            checks=[],
+            errors=[f"Failed to connect to executor manager: {str(e)}"],
         )
     except Exception as e:
         logger.error(f"Image validation error: {e}")
         return ImageValidationResponse(
-            valid=False, checks=results, errors=[f"Validation error: {str(e)}"]
+            valid=False,
+            checks=[],
+            errors=[f"Validation error: {str(e)}"],
         )
-
-    return ImageValidationResponse(valid=all_passed, checks=results, errors=errors)

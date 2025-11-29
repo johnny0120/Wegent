@@ -172,6 +172,220 @@ class CancelTaskRequest(BaseModel):
     task_id: int
 
 
+class ValidateImageRequest(BaseModel):
+    """Request body for validating base image compatibility"""
+    image: str
+    shell_type: str  # e.g., "ClaudeCode", "Agno"
+
+
+class ImageCheckResult(BaseModel):
+    """Individual check result"""
+    name: str
+    version: Optional[str] = None
+    status: str  # 'pass' or 'fail'
+    message: Optional[str] = None
+
+
+class ValidateImageResponse(BaseModel):
+    """Response for image validation"""
+    valid: bool
+    checks: list
+    errors: list
+
+
+@app.post("/executor-manager/images/validate")
+async def validate_image(request: ValidateImageRequest, http_request: Request):
+    """
+    Validate if a base image is compatible with a specific shell type.
+
+    This endpoint pulls the image and runs a temporary container to check for required dependencies:
+    - ClaudeCode: Node.js 20.x, claude-code CLI, SQLite 3.50+, Python 3.12
+    - Agno: Python 3.12
+    - Dify: No check needed (external_api type)
+
+    Note: Only supports public image registries.
+    """
+    import subprocess
+    import re as re_module
+
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    logger.info(f"Received image validation request: image={request.image}, shell_type={request.shell_type} from {client_ip}")
+
+    shell_type = request.shell_type
+    image = request.image
+
+    # Dify doesn't need validation
+    if shell_type == "Dify":
+        return ValidateImageResponse(
+            valid=True,
+            checks=[],
+            errors=["Dify is an external_api type and doesn't require image validation"],
+        )
+
+    # Define checks based on shell type
+    checks_config = {
+        "ClaudeCode": [
+            {
+                "name": "node",
+                "command": "node --version",
+                "version_regex": r"v(\d+\.\d+\.\d+)",
+                "min_version": "20.0.0",
+            },
+            {
+                "name": "claude-code",
+                "command": "claude --version 2>/dev/null || echo 'not found'",
+                "version_regex": r"(\d+\.\d+\.\d+)",
+                "min_version": None,
+            },
+            {
+                "name": "sqlite",
+                "command": "sqlite3 --version",
+                "version_regex": r"(\d+\.\d+\.\d+)",
+                "min_version": "3.50.0",
+            },
+            {
+                "name": "python",
+                "command": "python3 --version",
+                "version_regex": r"Python (\d+\.\d+\.\d+)",
+                "min_version": "3.12.0",
+            },
+        ],
+        "Agno": [
+            {
+                "name": "python",
+                "command": "python3 --version",
+                "version_regex": r"Python (\d+\.\d+\.\d+)",
+                "min_version": "3.12.0",
+            },
+        ],
+    }
+
+    if shell_type not in checks_config:
+        return ValidateImageResponse(
+            valid=False, checks=[], errors=[f"Unknown shell type: {shell_type}"]
+        )
+
+    checks_to_run = checks_config[shell_type]
+    results = []
+    errors = []
+    all_passed = True
+
+    try:
+        # Pull the image first (with timeout)
+        logger.info(f"Pulling image {image} for validation...")
+        pull_result = subprocess.run(
+            ["docker", "pull", image],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minutes timeout for pull
+        )
+        if pull_result.returncode != 0:
+            logger.error(f"Failed to pull image {image}: {pull_result.stderr}")
+            return ValidateImageResponse(
+                valid=False,
+                checks=[],
+                errors=[f"Failed to pull image: {pull_result.stderr}"],
+            )
+
+        # Run checks in a single container for efficiency
+        for check in checks_to_run:
+            try:
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        image,
+                        "sh",
+                        "-c",
+                        check["command"],
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+
+                output = result.stdout.strip()
+                if result.returncode != 0 or "not found" in output.lower():
+                    results.append(
+                        ImageCheckResult(
+                            name=check["name"],
+                            status="fail",
+                            message="Command failed or not found",
+                        ).model_dump()
+                    )
+                    all_passed = False
+                    continue
+
+                # Extract version
+                version_match = re_module.search(check["version_regex"], output)
+                if version_match:
+                    version = version_match.group(1)
+                    # Check minimum version if specified
+                    if check["min_version"]:
+                        from packaging import version as pkg_version
+
+                        try:
+                            if pkg_version.parse(version) < pkg_version.parse(
+                                check["min_version"]
+                            ):
+                                results.append(
+                                    ImageCheckResult(
+                                        name=check["name"],
+                                        version=version,
+                                        status="fail",
+                                        message=f"Version {version} < required {check['min_version']}",
+                                    ).model_dump()
+                                )
+                                all_passed = False
+                                continue
+                        except Exception:
+                            pass  # Skip version comparison on error
+
+                    results.append(
+                        ImageCheckResult(
+                            name=check["name"], version=version, status="pass"
+                        ).model_dump()
+                    )
+                else:
+                    results.append(
+                        ImageCheckResult(
+                            name=check["name"],
+                            status="pass",
+                            message="Detected but version not parsed",
+                        ).model_dump()
+                    )
+
+            except subprocess.TimeoutExpired:
+                results.append(
+                    ImageCheckResult(
+                        name=check["name"], status="fail", message="Check timed out"
+                    ).model_dump()
+                )
+                all_passed = False
+            except Exception as e:
+                results.append(
+                    ImageCheckResult(
+                        name=check["name"], status="fail", message=str(e)
+                    ).model_dump()
+                )
+                all_passed = False
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Image pull timed out for {image}")
+        return ValidateImageResponse(
+            valid=False, checks=results, errors=["Image pull timed out"]
+        )
+    except Exception as e:
+        logger.error(f"Image validation error for {image}: {e}")
+        return ValidateImageResponse(
+            valid=False, checks=results, errors=[f"Validation error: {str(e)}"]
+        )
+
+    logger.info(f"Image validation completed for {image}: valid={all_passed}")
+    return ValidateImageResponse(valid=all_passed, checks=results, errors=errors)
+
+
 @app.post("/executor-manager/tasks/cancel")
 async def cancel_task(request: CancelTaskRequest, http_request: Request):
     """
