@@ -176,20 +176,33 @@ class DockerExecutor(Executor):
         """Create new Docker container"""
         executor_name = status["executor_name"]
         task_id = task_info["task_id"]
-        
+
+        # Check for custom base_image from bot configuration
+        base_image = self._get_base_image_from_task(task)
+
         # Get executor image
         executor_image = self._get_executor_image(task)
-        
-        # Prepare Docker command
-        cmd = self._prepare_docker_command(task, task_info, executor_name, executor_image)
-        
+
+        # Prepare Docker command with optional base_image support
+        cmd = self._prepare_docker_command(task, task_info, executor_name, executor_image, base_image)
+
         # Execute Docker command
-        logger.info(f"Starting Docker container for task {task_id}: {executor_name}")
+        logger.info(f"Starting Docker container for task {task_id}: {executor_name} (base_image={base_image or 'default'})")
         result = self.subprocess.run(cmd, check=True, capture_output=True, text=True)
-        
+
         # Record container ID
         container_id = result.stdout.strip()
         logger.info(f"Started Docker container {executor_name} with ID {container_id}")
+
+    def _get_base_image_from_task(self, task: Dict[str, Any]) -> Optional[str]:
+        """Extract custom base_image from task's bot configuration"""
+        bots = task.get("bot", [])
+        if bots and isinstance(bots, list) and len(bots) > 0:
+            # Use the first bot's base_image if available
+            first_bot = bots[0]
+            if isinstance(first_bot, dict):
+                return first_bot.get("base_image")
+        return None
     
     def _get_executor_image(self, task: Dict[str, Any]) -> str:
         """Get executor image name"""
@@ -203,16 +216,33 @@ class DockerExecutor(Executor):
         task: Dict[str, Any],
         task_info: Dict[str, Any],
         executor_name: str,
-        executor_image: str
+        executor_image: str,
+        base_image: Optional[str] = None
     ) -> List[str]:
-        """Prepare Docker run command"""
+        """
+        Prepare Docker run command.
+
+        If base_image is provided, uses the Init Container pattern:
+        - Uses the custom base_image as container image
+        - Mounts executor binary from Named Volume
+        - Overrides entrypoint to /app/executor
+
+        Args:
+            task: Task information
+            task_info: Extracted task info
+            executor_name: Container name
+            executor_image: Default executor image
+            base_image: Optional custom base image
+        """
+        from executors.docker.binary_extractor import EXECUTOR_BINARY_VOLUME
+
         task_id = task_info["task_id"]
         subtask_id = task_info["subtask_id"]
         user_name = task_info["user_name"]
-        
+
         # Convert task to JSON string
         task_str = json.dumps(task)
-        
+
         # Basic command
         cmd = [
             "docker",
@@ -236,27 +266,36 @@ class DockerExecutor(Executor):
             # Mount
             "-v", f"{DOCKER_SOCKET_PATH}:{DOCKER_SOCKET_PATH}"
         ]
-        
+
+        # If using custom base_image, mount executor binary from Named Volume
+        if base_image:
+            cmd.extend([
+                "-v", f"{EXECUTOR_BINARY_VOLUME}:/app:ro",  # Mount executor binary as read-only
+                "--entrypoint", "/app/executor"  # Override entrypoint
+            ])
+            logger.info(f"Using custom base image mode: {base_image} with executor from {EXECUTOR_BINARY_VOLUME}")
+
         # Add TASK_API_DOMAIN environment variable for executor to access backend API
         self._add_task_api_domain(cmd)
-        
+
         # Add workspace mount
         self._add_workspace_mount(cmd)
-        
+
         # Add network configuration
         self._add_network_config(cmd)
-        
+
         # Add port mapping
         port = find_available_port()
         logger.info(f"Assigned port {port} for container {executor_name}")
         cmd.extend(["-p", f"{port}:{port}", "-e", f"PORT={port}"])
-        
+
         # Add callback URL
         self._add_callback_url(cmd, task)
-        
-        # Add executor image
-        cmd.append(executor_image)
-        
+
+        # Add executor image (use base_image if provided, otherwise use default executor_image)
+        final_image = base_image if base_image else executor_image
+        cmd.append(final_image)
+
         return cmd
     
     def _add_task_api_domain(self, cmd: List[str]) -> None:
