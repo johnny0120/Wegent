@@ -25,7 +25,7 @@ from claude_agent_sdk.types import (
     TextBlock,
     ToolResultBlock,
 )
-from agents.claude_code.output_parser import detect_waiting_signal
+from executor.agents.claude_code.output_parser import detect_waiting_signal
 
 logger = setup_logger("claude_response_processor")
 
