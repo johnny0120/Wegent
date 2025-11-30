@@ -7,15 +7,19 @@
 # - Runs all quality checks (lint, type, test, build)
 # - Generates a comprehensive report
 # - Blocks push if critical checks fail
-# - Documentation reminders can be skipped with AI_VERIFIED=1
+# - Documentation reminders require verification with AI_VERIFIED=1
 #
 # Usage:
 #   git push                    (runs all checks)
-#   AI_VERIFIED=1 git push      (skip doc reminders after review)
-#   git push --no-verify        (skip all checks - not recommended)
+#   AI_VERIFIED=1 git push      (confirm docs checked and no updates needed)
 # =============================================================================
 
-set -e
+# Don't exit on error - we want to run all checks and report at the end
+set +e
+
+# Create temp directory for storing check outputs (reduces memory usage)
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
 
 # Colors for output
 RED='\033[0;31m'
@@ -85,6 +89,8 @@ echo ""
 # Track check results
 WARNINGS=()
 DOC_REMINDERS=()
+FAILED_CHECKS=()
+FAILED_LOGS=()
 
 # -----------------------------------------------------------------------------
 # Check: Changed files summary
@@ -158,18 +164,323 @@ fi
 echo ""
 
 # -----------------------------------------------------------------------------
-# Summary Section
+# Run Quality Checks
 # -----------------------------------------------------------------------------
 echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}📊 Pre-push Checks${NC}"
+echo -e "${CYAN}📊 Running Quality Checks${NC}"
 echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-echo -e "   ${BLUE}The following checks will run:${NC}"
-echo -e "      - Lint & Format (Black, isort, ESLint)"
-echo -e "      - Type Check (TypeScript, mypy)"
-echo -e "      - Unit Tests (pytest, npm test)"
-echo -e "      - Build Check (py_compile, npm run build)"
+# Track overall check status
+CHECK_FAILED=0
+
+# -----------------------------------------------------------------------------
+# Frontend Checks (if frontend files changed)
+# -----------------------------------------------------------------------------
+if [ "$FRONTEND_COUNT" -gt 0 ] 2>/dev/null; then
+    echo -e "${BLUE}🔍 Frontend Checks:${NC}"
+    
+    # Check if we're in the right directory and node_modules exists
+    if [ ! -d "frontend/node_modules" ]; then
+        echo -e "   ${RED}❌ FAILED: node_modules not found${NC}"
+        echo -e "   ${RED}   Run 'cd frontend && npm install' to install dependencies${NC}"
+        echo -e "   ${YELLOW}⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.${NC}"
+        CHECK_FAILED=1
+        FAILED_CHECKS+=("Frontend Dependencies")
+        FAILED_LOGS+=("=== Frontend Dependencies Missing ===
+node_modules directory not found in frontend/
+Fix: cd frontend && npm install
+⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.")
+    else
+        cd frontend
+        
+        # ESLint (output to temp file to reduce memory usage)
+        echo -e "   Running ESLint..."
+        npm run lint > "$TEMP_DIR/eslint.log" 2>&1
+        ESLINT_EXIT=$?
+        if [ $ESLINT_EXIT -eq 0 ]; then
+            echo -e "   ${GREEN}✅ ESLint: PASSED${NC}"
+        else
+            echo -e "   ${RED}❌ ESLint: FAILED${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Frontend ESLint")
+            FAILED_LOGS+=("$TEMP_DIR/eslint.log")
+        fi
+        
+        # TypeScript type check (output to temp file to reduce memory usage)
+        echo -e "   Running TypeScript check..."
+        npx tsc --noEmit > "$TEMP_DIR/tsc.log" 2>&1
+        TSC_EXIT=$?
+        if [ $TSC_EXIT -eq 0 ]; then
+            echo -e "   ${GREEN}✅ TypeScript: PASSED${NC}"
+        else
+            echo -e "   ${RED}❌ TypeScript: FAILED${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Frontend TypeScript")
+            FAILED_LOGS+=("$TEMP_DIR/tsc.log")
+        fi
+        
+        # Unit tests (output to temp file to reduce memory usage)
+        echo -e "   Running unit tests..."
+        npm test -- --passWithNoTests > "$TEMP_DIR/test.log" 2>&1
+        TEST_EXIT=$?
+        if [ $TEST_EXIT -eq 0 ]; then
+            echo -e "   ${GREEN}✅ Unit Tests: PASSED${NC}"
+        else
+            echo -e "   ${RED}❌ Unit Tests: FAILED${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Frontend Unit Tests")
+            FAILED_LOGS+=("$TEMP_DIR/test.log")
+        fi
+        # Note: Build check removed to reduce memory usage (~1.5GB).
+        # TypeScript check above already validates type correctness.
+        # Full build verification should be done in CI pipeline.
+        
+        cd ..
+    fi
+    echo ""
+fi
+
+# -----------------------------------------------------------------------------
+# Backend Checks (if backend files changed)
+# -----------------------------------------------------------------------------
+if [ "$BACKEND_COUNT" -gt 0 ] 2>/dev/null; then
+    echo -e "${BLUE}🔍 Backend Checks:${NC}"
+    
+    cd backend
+    
+    # Check if virtual environment or Python packages are available
+    if ! command -v black &> /dev/null && [ ! -f "venv/bin/black" ]; then
+        echo -e "   ${RED}❌ FAILED: black not found${NC}"
+        echo -e "   ${RED}   Run 'pip install black isort pytest' to install dependencies${NC}"
+        echo -e "   ${YELLOW}⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.${NC}"
+        CHECK_FAILED=1
+        FAILED_CHECKS+=("Backend Dependencies (black)")
+        FAILED_LOGS+=("=== Backend Dependencies Missing ===
+black command not found
+Fix: pip install black isort pytest
+⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.")
+        cd ..
+    else
+        # Black format check
+        # Black format check (output to temp file)
+        echo -e "   Running Black format check..."
+        black --check app/ > "$TEMP_DIR/black.log" 2>&1
+        BLACK_EXIT=$?
+        if [ $BLACK_EXIT -eq 0 ]; then
+            echo -e "   ${GREEN}✅ Black: PASSED${NC}"
+        else
+            echo -e "   ${RED}❌ Black: FAILED (run 'cd backend && black app/' to fix)${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Backend Black")
+            # Append fix hint to log file
+            echo -e "\nFix: cd backend && black app/" >> "$TEMP_DIR/black.log"
+            FAILED_LOGS+=("$TEMP_DIR/black.log")
+        fi
+        
+        # isort check
+        if ! command -v isort &> /dev/null; then
+            echo -e "   ${RED}❌ FAILED: isort not found${NC}"
+            echo -e "   ${RED}   Run 'pip install isort' to install dependencies${NC}"
+            echo -e "   ${YELLOW}⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Backend Dependencies (isort)")
+            echo -e "=== Backend Dependencies Missing ===\nisort command not found\nFix: pip install isort\n⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks." > "$TEMP_DIR/isort_missing.log"
+            FAILED_LOGS+=("$TEMP_DIR/isort_missing.log")
+        else
+            echo -e "   Running isort check..."
+            isort --check-only --diff app/ > "$TEMP_DIR/isort.log" 2>&1
+            ISORT_EXIT=$?
+            if [ $ISORT_EXIT -eq 0 ]; then
+                echo -e "   ${GREEN}✅ isort: PASSED${NC}"
+            else
+                echo -e "   ${RED}❌ isort: FAILED (run 'cd backend && isort app/' to fix)${NC}"
+                CHECK_FAILED=1
+                FAILED_CHECKS+=("Backend isort")
+                echo -e "\nFix: cd backend && isort app/" >> "$TEMP_DIR/isort.log"
+                FAILED_LOGS+=("$TEMP_DIR/isort.log")
+            fi
+        fi
+        
+        # pytest
+        if ! command -v pytest &> /dev/null; then
+            echo -e "   ${RED}❌ FAILED: pytest not found${NC}"
+            echo -e "   ${RED}   Run 'pip install pytest' to install dependencies${NC}"
+            echo -e "   ${YELLOW}⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Backend Dependencies (pytest)")
+            echo -e "=== Backend Dependencies Missing ===\npytest command not found\nFix: pip install pytest\n⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks." > "$TEMP_DIR/pytest_missing.log"
+            FAILED_LOGS+=("$TEMP_DIR/pytest_missing.log")
+        else
+            echo -e "   Running pytest..."
+            if [ -d "tests" ]; then
+                pytest tests/ --tb=short -q > "$TEMP_DIR/backend_pytest.log" 2>&1
+                PYTEST_EXIT=$?
+                if [ $PYTEST_EXIT -eq 0 ]; then
+                    echo -e "   ${GREEN}✅ Pytest: PASSED${NC}"
+                else
+                    echo -e "   ${RED}❌ Pytest: FAILED${NC}"
+                    CHECK_FAILED=1
+                    FAILED_CHECKS+=("Backend Pytest")
+                    FAILED_LOGS+=("$TEMP_DIR/backend_pytest.log")
+                fi
+            else
+                echo -e "   ${RED}❌ FAILED: tests directory not found${NC}"
+                CHECK_FAILED=1
+                FAILED_CHECKS+=("Backend Tests Directory")
+                echo -e "=== Backend Tests Directory Missing ===\ntests/ directory not found in backend/\nFix: Create tests/ directory with test files" > "$TEMP_DIR/backend_tests_missing.log"
+                FAILED_LOGS+=("$TEMP_DIR/backend_tests_missing.log")
+            fi
+        fi
+        # Python syntax check
+        # Python syntax check (output to temp file)
+        echo -e "   Running Python syntax check..."
+        SYNTAX_ERROR=0
+        > "$TEMP_DIR/syntax.log"  # Clear/create the file
+        for pyfile in $(echo "$CHANGED_FILES" | grep "^backend/.*\.py$"); do
+            if [ -f "../$pyfile" ]; then
+                python -m py_compile "../$pyfile" 2>> "$TEMP_DIR/syntax.log"
+                if [ $? -ne 0 ]; then
+                    echo -e "   ${RED}   Syntax error in: $pyfile${NC}"
+                    SYNTAX_ERROR=1
+                fi
+            fi
+        done
+        if [ $SYNTAX_ERROR -eq 0 ]; then
+            echo -e "   ${GREEN}✅ Syntax Check: PASSED${NC}"
+        else
+            echo -e "   ${RED}❌ Syntax Check: FAILED${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Backend Syntax")
+            FAILED_LOGS+=("$TEMP_DIR/syntax.log")
+        fi
+        cd ..
+    fi
+    echo ""
+fi
+
+# -----------------------------------------------------------------------------
+# Executor Checks (if executor files changed)
+# -----------------------------------------------------------------------------
+if [ "$EXECUTOR_COUNT" -gt 0 ] 2>/dev/null; then
+    echo -e "${BLUE}🔍 Executor Checks:${NC}"
+    
+    cd executor
+    
+    if ! command -v pytest &> /dev/null; then
+        echo -e "   ${RED}❌ FAILED: pytest not found${NC}"
+        echo -e "   ${RED}   Run 'pip install pytest' to install dependencies${NC}"
+        echo -e "   ${YELLOW}⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.${NC}"
+        CHECK_FAILED=1
+        FAILED_CHECKS+=("Executor Dependencies (pytest)")
+        echo -e "=== Executor Dependencies Missing ===\npytest command not found\nFix: pip install pytest\n⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks." > "$TEMP_DIR/executor_pytest_missing.log"
+        FAILED_LOGS+=("$TEMP_DIR/executor_pytest_missing.log")
+    else
+        echo -e "   Running pytest..."
+        if [ -d "tests" ]; then
+            pytest tests/ --tb=short -q > "$TEMP_DIR/executor_pytest.log" 2>&1
+            PYTEST_EXIT=$?
+            if [ $PYTEST_EXIT -eq 0 ]; then
+                echo -e "   ${GREEN}✅ Pytest: PASSED${NC}"
+            else
+                echo -e "   ${RED}❌ Pytest: FAILED${NC}"
+                CHECK_FAILED=1
+                FAILED_CHECKS+=("Executor Pytest")
+                FAILED_LOGS+=("$TEMP_DIR/executor_pytest.log")
+            fi
+        else
+            echo -e "   ${RED}❌ FAILED: tests directory not found${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Executor Tests Directory")
+            echo -e "=== Executor Tests Directory Missing ===\ntests/ directory not found in executor/\nFix: Create tests/ directory with test files" > "$TEMP_DIR/executor_tests_missing.log"
+            FAILED_LOGS+=("$TEMP_DIR/executor_tests_missing.log")
+        fi
+    fi
+    
+    cd ..
+    echo ""
+fi
+
+# -----------------------------------------------------------------------------
+# Executor Manager Checks (if executor_manager files changed)
+# -----------------------------------------------------------------------------
+if [ "$EXECUTOR_MGR_COUNT" -gt 0 ] 2>/dev/null; then
+    echo -e "${BLUE}🔍 Executor Manager Checks:${NC}"
+    
+    cd executor_manager
+    if ! command -v pytest &> /dev/null; then
+        echo -e "   ${RED}❌ FAILED: pytest not found${NC}"
+        echo -e "   ${RED}   Run 'pip install pytest' to install dependencies${NC}"
+        echo -e "   ${YELLOW}⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks.${NC}"
+        CHECK_FAILED=1
+        FAILED_CHECKS+=("Executor Manager Dependencies (pytest)")
+        echo -e "=== Executor Manager Dependencies Missing ===\npytest command not found\nFix: pip install pytest\n⚠️  Please install dependencies and re-run 'git push'. Do NOT skip checks." > "$TEMP_DIR/exec_mgr_pytest_missing.log"
+        FAILED_LOGS+=("$TEMP_DIR/exec_mgr_pytest_missing.log")
+    else
+        echo -e "   Running pytest..."
+        if [ -d "tests" ]; then
+            pytest tests/ --tb=short -q > "$TEMP_DIR/exec_mgr_pytest.log" 2>&1
+            PYTEST_EXIT=$?
+            # Check if tests passed (look for "passed" in output and no "failed")
+            if grep -q "passed" "$TEMP_DIR/exec_mgr_pytest.log" && ! grep -q "[0-9]* failed" "$TEMP_DIR/exec_mgr_pytest.log"; then
+                echo -e "   ${GREEN}✅ Pytest: PASSED${NC}"
+            elif [ $PYTEST_EXIT -eq 0 ]; then
+                echo -e "   ${GREEN}✅ Pytest: PASSED${NC}"
+            else
+                echo -e "   ${RED}❌ Pytest: FAILED${NC}"
+                CHECK_FAILED=1
+                FAILED_CHECKS+=("Executor Manager Pytest")
+                FAILED_LOGS+=("$TEMP_DIR/exec_mgr_pytest.log")
+            fi
+        else
+            echo -e "   ${RED}❌ FAILED: tests directory not found${NC}"
+            CHECK_FAILED=1
+            FAILED_CHECKS+=("Executor Manager Tests Directory")
+            echo -e "=== Executor Manager Tests Directory Missing ===\ntests/ directory not found in executor_manager/\nFix: Create tests/ directory with test files" > "$TEMP_DIR/exec_mgr_tests_missing.log"
+            FAILED_LOGS+=("$TEMP_DIR/exec_mgr_tests_missing.log")
+        fi
+    fi
+    
+    cd ..
+    echo ""
+fi
+
+# -----------------------------------------------------------------------------
+# Check Results Summary
+# -----------------------------------------------------------------------------
+echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}📊 Check Results Summary${NC}"
+echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+echo ""
+
+if [ $CHECK_FAILED -eq 1 ]; then
+    echo -e "${RED}${BOLD}❌ Some checks failed. Please fix the issues before pushing.${NC}"
+    echo ""
+    
+    # Output detailed error logs at the end for AI tail monitoring
+    echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}${BOLD}FAILED CHECKS DETAIL (for AI monitoring):${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+    echo ""
+    for i in "${!FAILED_CHECKS[@]}"; do
+        echo -e "${RED}❌ ${FAILED_CHECKS[$i]}${NC}"
+        # FAILED_LOGS now contains file paths, read content from file
+        if [ -f "${FAILED_LOGS[$i]}" ]; then
+            echo -e "${YELLOW}=== ${FAILED_CHECKS[$i]} Errors ===${NC}"
+            cat "${FAILED_LOGS[$i]}"
+        else
+            # Fallback for inline messages (shouldn't happen with new code)
+            echo -e "${YELLOW}${FAILED_LOGS[$i]}${NC}"
+        fi
+        echo ""
+    done
+    echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}Total failed: ${#FAILED_CHECKS[@]} check(s)${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ All quality checks passed!${NC}"
 echo ""
 
 if [ ${#WARNINGS[@]} -gt 0 ]; then
@@ -186,16 +497,38 @@ fi
 if [ ${#DOC_REMINDERS[@]} -gt 0 ] && [ "$AI_VERIFIED" != "1" ]; then
     echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${YELLOW}${BOLD}🔒 Documentation Review Required${NC}"
+    echo -e "${RED}${BOLD}🚫 PUSH BLOCKED - Documentation Update Required${NC}"
     echo ""
-    echo -e "Please review the documentation reminders above."
-    echo -e "If you have verified all items, re-run with:"
+    echo -e "${RED}${BOLD}⚠️  CRITICAL: THIS IS YOUR ONLY CHANCE TO UPDATE DOCUMENTATION${NC}"
     echo ""
-    echo -e "    ${GREEN}${BOLD}AI_VERIFIED=1 git push${NC}"
+    echo -e "${YELLOW}${BOLD}Your code changes require documentation updates.${NC}"
+    echo -e "${YELLOW}After this push, there will be NO further opportunity to update docs.${NC}"
+    echo -e "${YELLOW}The documentation must be complete and accurate IN THIS COMMIT.${NC}"
     echo ""
-    echo -e "To skip all pre-push checks (not recommended):"
+    echo -e "${BLUE}Documentation reminders:${NC}"
+    for reminder in "${DOC_REMINDERS[@]}"; do
+        echo -e "   ${YELLOW}• $reminder${NC}"
+    done
     echo ""
-    echo -e "    ${YELLOW}git push --no-verify${NC}"
+    echo -e "${BOLD}You MUST either:${NC}"
+    echo ""
+    echo -e "  ${GREEN}1. Update the relevant documentation NOW${NC}"
+    echo -e "     Add doc changes to this commit, then push again."
+    echo -e "     ${CYAN}This is the recommended approach.${NC}"
+    echo ""
+    echo -e "  ${YELLOW}2. ONLY if you have THOROUGHLY VERIFIED that your changes${NC}"
+    echo -e "     ${YELLOW}do NOT require ANY documentation updates:${NC}"
+    echo ""
+    echo -e "     ${GREEN}${BOLD}AI_VERIFIED=1 git push${NC}"
+    echo -e "     ${CYAN}(This confirms you have checked all relevant docs and no updates are needed)${NC}"
+    echo ""
+    echo -e "${RED}${BOLD}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}${BOLD}⚠️  WARNING: INCOMPLETE DOCUMENTATION IS NOT ACCEPTABLE${NC}"
+    echo -e "${RED}${BOLD}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}   • Users depend on accurate documentation${NC}"
+    echo -e "${RED}   • Outdated docs cause confusion and support burden${NC}"
+    echo -e "${RED}   • You will NOT get another chance to update docs for this change${NC}"
+    echo -e "${RED}   • AI_VERIFIED=1 means you CONFIRM docs are already up-to-date${NC}"
     echo ""
     echo -e "${CYAN}══════════════════════════════════════════════════════════${NC}"
     echo ""

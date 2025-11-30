@@ -6,12 +6,14 @@
 Kubernetes-style API schemas for cloud-native agent management
 """
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
 class ObjectMeta(BaseModel):
     """Standard Kubernetes object metadata"""
+
     name: str
     namespace: str = "default"
     displayName: Optional[str] = None  # Human-readable display name
@@ -21,6 +23,7 @@ class ObjectMeta(BaseModel):
 
 class Status(BaseModel):
     """Standard status object"""
+
     state: str
     message: Optional[str] = None
     # conditions: Optional[List[Dict[str, Any]]] = None
@@ -29,6 +32,7 @@ class Status(BaseModel):
 # Ghost CRD schemas
 class GhostSpec(BaseModel):
     """Ghost specification"""
+
     systemPrompt: str
     mcpServers: Optional[Dict[str, Any]] = None
     skills: Optional[List[str]] = None  # Skill names list
@@ -36,11 +40,13 @@ class GhostSpec(BaseModel):
 
 class GhostStatus(Status):
     """Ghost status"""
+
     state: str = "Available"  # Available, Unavailable
 
 
 class Ghost(BaseModel):
     """Ghost CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Ghost"
     metadata: ObjectMeta
@@ -50,6 +56,7 @@ class Ghost(BaseModel):
 
 class GhostList(BaseModel):
     """Ghost list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "GhostList"
     items: List[Ghost]
@@ -58,18 +65,25 @@ class GhostList(BaseModel):
 # Model CRD schemas
 class ModelSpec(BaseModel):
     """Model specification"""
+
     modelConfig: Dict[str, Any]
-    isCustomConfig: Optional[bool] = None  # True if user customized the config, False/None if using predefined model
-    protocol: Optional[str] = None  # Model protocol type: 'openai', 'claude', etc. Required for custom configs
+    isCustomConfig: Optional[bool] = (
+        None  # True if user customized the config, False/None if using predefined model
+    )
+    protocol: Optional[str] = (
+        None  # Model protocol type: 'openai', 'claude', etc. Required for custom configs
+    )
 
 
 class ModelStatus(Status):
     """Model status"""
+
     state: str = "Available"  # Available, Unavailable
 
 
 class Model(BaseModel):
     """Model CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Model"
     metadata: ObjectMeta
@@ -79,6 +93,7 @@ class Model(BaseModel):
 
 class ModelList(BaseModel):
     """Model list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "ModelList"
     items: List[Model]
@@ -87,23 +102,27 @@ class ModelList(BaseModel):
 # Shell CRD schemas
 class ModelRef(BaseModel):
     """Reference to a Model"""
+
     name: str
     namespace: str = "default"
 
 
 class ShellSpec(BaseModel):
     """Shell specification"""
+
     runtime: str
     supportModel: Optional[List[str]] = None
 
 
 class ShellStatus(Status):
     """Shell status"""
+
     state: str = "Available"  # Available, Unavailable
 
 
 class Shell(BaseModel):
     """Shell CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Shell"
     metadata: ObjectMeta
@@ -113,6 +132,7 @@ class Shell(BaseModel):
 
 class ShellList(BaseModel):
     """Shell list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "ShellList"
     items: List[Shell]
@@ -121,18 +141,21 @@ class ShellList(BaseModel):
 # Bot CRD schemas
 class GhostRef(BaseModel):
     """Reference to a Ghost"""
+
     name: str
     namespace: str = "default"
 
 
 class ShellRef(BaseModel):
     """Reference to a Shell"""
+
     name: str
     namespace: str = "default"
 
 
 class BotSpec(BaseModel):
     """Bot specification"""
+
     ghostRef: GhostRef
     shellRef: ShellRef
     modelRef: Optional[ModelRef] = None
@@ -140,11 +163,13 @@ class BotSpec(BaseModel):
 
 class BotStatus(Status):
     """Bot status"""
+
     state: str = "Available"  # Available, Unavailable
 
 
 class Bot(BaseModel):
     """Bot CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Bot"
     metadata: ObjectMeta
@@ -154,6 +179,7 @@ class Bot(BaseModel):
 
 class BotList(BaseModel):
     """Bot list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "BotList"
     items: List[Bot]
@@ -162,12 +188,14 @@ class BotList(BaseModel):
 # Team CRD schemas
 class BotTeamRef(BaseModel):
     """Reference to a Bot in Team"""
+
     name: str
     namespace: str = "default"
 
 
 class TeamMember(BaseModel):
     """Team member specification"""
+
     botRef: BotTeamRef
     prompt: Optional[str] = None
     role: Optional[str] = None
@@ -175,6 +203,7 @@ class TeamMember(BaseModel):
 
 class TeamSpec(BaseModel):
     """Team specification"""
+
     members: List[TeamMember]
     collaborationModel: str  # pipeline、route、coordinate、collaborate
     icon: Optional[str] = None  # Lucide icon name (e.g., "Users", "Bot", "Zap")
@@ -183,11 +212,13 @@ class TeamSpec(BaseModel):
 
 class TeamStatus(Status):
     """Team status"""
+
     state: str = "Available"  # Available, Unavailable
 
 
 class Team(BaseModel):
     """Team CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Team"
     metadata: ObjectMeta
@@ -197,6 +228,7 @@ class Team(BaseModel):
 
 class TeamList(BaseModel):
     """Team list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "TeamList"
     items: List[Team]
@@ -205,24 +237,29 @@ class TeamList(BaseModel):
 # Workspace CRD schemas
 class Repository(BaseModel):
     """Repository configuration"""
+
     gitUrl: str
     gitRepo: str
     gitRepoId: Optional[int] = None
     branchName: str
     gitDomain: str
 
+
 class WorkspaceSpec(BaseModel):
     """Workspace specification"""
+
     repository: Repository
 
 
 class WorkspaceStatus(Status):
     """Workspace status"""
+
     state: str = "Available"  # Available, Unavailable
 
 
 class Workspace(BaseModel):
     """Workspace CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Workspace"
     metadata: ObjectMeta
@@ -232,6 +269,7 @@ class Workspace(BaseModel):
 
 class WorkspaceList(BaseModel):
     """Workspace list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "WorkspaceList"
     items: List[Workspace]
@@ -240,18 +278,21 @@ class WorkspaceList(BaseModel):
 # Task CRD schemas
 class TeamTaskRef(BaseModel):
     """Reference to a Team"""
+
     name: str
     namespace: str = "default"
 
 
 class WorkspaceTaskRef(BaseModel):
     """Reference to a Workspace"""
+
     name: str
     namespace: str = "default"
 
 
 class TaskSpec(BaseModel):
     """Task specification"""
+
     title: str
     prompt: str
     teamRef: TeamTaskRef
@@ -260,6 +301,7 @@ class TaskSpec(BaseModel):
 
 class TaskStatus(Status):
     """Task status"""
+
     state: str = "Available"  # Available, Unavailable
     status: str = "PENDING"  # PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, DELETE
     progress: int = 0
@@ -268,11 +310,12 @@ class TaskStatus(Status):
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
     completedAt: Optional[datetime] = None
-    subTasks:  Optional[List[Dict[str, Any]]] = None 
+    subTasks: Optional[List[Dict[str, Any]]] = None
 
 
 class Task(BaseModel):
     """Task CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Task"
     metadata: ObjectMeta
@@ -282,6 +325,7 @@ class Task(BaseModel):
 
 class TaskList(BaseModel):
     """Task list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "TaskList"
     items: List[Task]
@@ -289,6 +333,7 @@ class TaskList(BaseModel):
 
 class BatchResponse(BaseModel):
     """Batch operation response"""
+
     success: bool
     message: str
     results: List[Dict[str, Any]]
@@ -297,6 +342,7 @@ class BatchResponse(BaseModel):
 # Skill CRD schemas
 class SkillSpec(BaseModel):
     """Skill specification"""
+
     description: str  # Extracted from SKILL.md YAML frontmatter
     version: Optional[str] = None  # Skill version
     author: Optional[str] = None  # Author
@@ -305,6 +351,7 @@ class SkillSpec(BaseModel):
 
 class SkillStatus(Status):
     """Skill status"""
+
     state: str = "Available"  # Available, Unavailable
     fileSize: Optional[int] = None  # ZIP package size in bytes
     fileHash: Optional[str] = None  # SHA256 hash
@@ -312,6 +359,7 @@ class SkillStatus(Status):
 
 class Skill(BaseModel):
     """Skill CRD"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "Skill"
     metadata: ObjectMeta
@@ -321,6 +369,7 @@ class Skill(BaseModel):
 
 class SkillList(BaseModel):
     """Skill list"""
+
     apiVersion: str = "agent.wecode.io/v1"
     kind: str = "SkillList"
     items: List[Skill]
