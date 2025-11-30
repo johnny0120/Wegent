@@ -15,7 +15,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Switch } from '@/components/ui/switch';
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
 import { RiRobot2Line } from 'react-icons/ri';
@@ -69,7 +68,6 @@ export default function TeamEdit(props: TeamEditProps) {
   const [name, setName] = useState('');
   const [mode, setMode] = useState<TeamMode>('solo');
   const [icon, setIcon] = useState<string>('');
-  const [isRecommended, setIsRecommended] = useState(false);
 
   // Right column: LeaderBot (single select), Bots Transfer (multi-select)
   // Use string key for antd Transfer, stringify bot.id here
@@ -204,7 +202,6 @@ export default function TeamEdit(props: TeamEditProps) {
       const m = (formTeam.workflow?.mode as TeamMode) || 'pipeline';
       setMode(m);
       setIcon(formTeam.icon || '');
-      setIsRecommended(formTeam.is_recommended || false);
       const ids = formTeam.bots.map(b => String(b.bot_id));
       setSelectedBotKeys(ids);
       const leaderBot = formTeam.bots.find(b => b.role === 'leader');
@@ -213,7 +210,6 @@ export default function TeamEdit(props: TeamEditProps) {
       setName('');
       setMode('solo');
       setIcon('');
-      setIsRecommended(false);
       setSelectedBotKeys([]);
       setLeaderBotId(null);
     }
@@ -404,7 +400,6 @@ export default function TeamEdit(props: TeamEditProps) {
           workflow,
           bots: botsData,
           icon: icon || undefined,
-          is_recommended: isRecommended,
         });
         setTeams(prev => prev.map(team => (team.id === updated.id ? updated : team)));
       } else {
@@ -413,7 +408,6 @@ export default function TeamEdit(props: TeamEditProps) {
           workflow,
           bots: botsData,
           icon: icon || undefined,
-          is_recommended: isRecommended,
         });
         setTeams(prev => [created, ...prev]);
       }
@@ -498,18 +492,6 @@ export default function TeamEdit(props: TeamEditProps) {
               />
             </div>
           </div>
-
-          {/* Set as Recommended Switch */}
-          <div className="flex items-center justify-between py-2 px-1">
-            <label className="text-sm font-medium text-text-secondary">
-              {t('teams.set_recommended')}
-            </label>
-            <Switch
-              checked={isRecommended}
-              onCheckedChange={setIsRecommended}
-            />
-          </div>
-
           {/* Mode component */}
           <div className="flex flex-col flex-1 min-h-0">
             <div className="flex items-center mb-1">
