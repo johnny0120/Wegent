@@ -187,8 +187,9 @@
     "recommended": "推荐应用",
     "favorites": "我的收藏",
     "set_recommended": "设为推荐",
-    "add_to_favorites": "添加收藏",
-    "remove_from_favorites": "取消收藏",
+    "add_favorite": "添加收藏",
+    "remove_favorite": "取消收藏",
+    "favorite_failed": "收藏操作失败",
     "select_icon": "选择图标",
     "share": {
       "title": "团队分享",

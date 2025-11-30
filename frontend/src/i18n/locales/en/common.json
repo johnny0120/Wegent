@@ -186,8 +186,9 @@
     "recommended": "Recommended Apps",
     "favorites": "My Favorites",
     "set_recommended": "Set as Recommended",
-    "add_to_favorites": "Add to Favorites",
-    "remove_from_favorites": "Remove from Favorites",
+    "add_favorite": "Add to Favorites",
+    "remove_favorite": "Remove from Favorites",
+    "favorite_failed": "Failed to toggle favorite",
     "select_icon": "Select Icon",
     "share": {
       "title": "Team Share",

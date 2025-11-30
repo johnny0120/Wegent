@@ -42,6 +42,14 @@ def list_teams(
     items = team_kinds_service.get_user_teams(
         db=db, user_id=current_user.id, skip=skip, limit=limit
     )
+
+    # Add is_favorited field to each team
+    favorite_team_ids = team_favorite_service.get_user_favorite_team_ids(
+        db=db, user_id=current_user.id
+    )
+    for item in items:
+        item["is_favorited"] = item["id"] in favorite_team_ids
+
     if page == 1 and len(items) < limit:
         total = len(items)
     else:
