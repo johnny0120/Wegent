@@ -25,7 +25,9 @@ export default function TeamCard({
 }: TeamCardProps) {
   // Get the icon component dynamically
   const IconComponent = team.icon
-    ? (LucideIcons as Record<string, React.ComponentType<{ className?: string }>>)[team.icon]
+    ? (LucideIcons as unknown as Record<string, React.ComponentType<{ className?: string }>>)[
+        team.icon
+      ]
     : null;
 
   // Get first letter for default avatar
@@ -66,13 +68,9 @@ export default function TeamCard({
 
           {/* Team Name */}
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-medium text-text-primary truncate">
-              {team.name}
-            </h3>
+            <h3 className="text-base font-medium text-text-primary truncate">{team.name}</h3>
             {team.user?.user_name && team.share_status === 2 && (
-              <p className="text-xs text-text-muted truncate">
-                by {team.user.user_name}
-              </p>
+              <p className="text-xs text-text-muted truncate">by {team.user.user_name}</p>
             )}
           </div>
         </div>
@@ -102,12 +100,7 @@ export default function TeamCard({
       {/* Agent Type Badge */}
       {team.agent_type && (
         <div className="flex items-center gap-1">
-          <span
-            className={cn(
-              'px-2 py-0.5 text-xs rounded-md',
-              'bg-muted text-text-secondary'
-            )}
-          >
+          <span className={cn('px-2 py-0.5 text-xs rounded-md', 'bg-muted text-text-secondary')}>
             {team.agent_type}
           </span>
         </div>

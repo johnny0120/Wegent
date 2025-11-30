@@ -5,11 +5,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -18,14 +14,70 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 // Common icons for team selection (curated list of ~60 icons)
 const COMMON_ICONS = [
-  'Users', 'Bot', 'Zap', 'Rocket', 'Star', 'Heart', 'Brain', 'Lightbulb',
-  'Code', 'Terminal', 'Database', 'Server', 'Cloud', 'Globe', 'Network', 'Cpu',
-  'Sparkles', 'Wand2', 'Magic', 'Target', 'Award', 'Trophy', 'Medal', 'Crown',
-  'Building', 'Home', 'Briefcase', 'Folder', 'FileCode', 'GitBranch', 'Github', 'Gitlab',
-  'MessageSquare', 'MessagesSquare', 'Mail', 'Send', 'Phone', 'Video', 'Mic', 'Headphones',
-  'Search', 'Eye', 'Settings', 'Wrench', 'Hammer', 'Puzzle', 'Layers', 'Layout',
-  'Palette', 'Paintbrush', 'PenTool', 'Image', 'Camera', 'Film', 'Music', 'Play',
-  'Shield', 'Lock', 'Key', 'Fingerprint', 'UserCheck', 'UserPlus', 'Users2', 'UsersRound',
+  'Users',
+  'Bot',
+  'Zap',
+  'Rocket',
+  'Star',
+  'Heart',
+  'Brain',
+  'Lightbulb',
+  'Code',
+  'Terminal',
+  'Database',
+  'Server',
+  'Cloud',
+  'Globe',
+  'Network',
+  'Cpu',
+  'Sparkles',
+  'Wand2',
+  'Magic',
+  'Target',
+  'Award',
+  'Trophy',
+  'Medal',
+  'Crown',
+  'Building',
+  'Home',
+  'Briefcase',
+  'Folder',
+  'FileCode',
+  'GitBranch',
+  'Github',
+  'Gitlab',
+  'MessageSquare',
+  'MessagesSquare',
+  'Mail',
+  'Send',
+  'Phone',
+  'Video',
+  'Mic',
+  'Headphones',
+  'Search',
+  'Eye',
+  'Settings',
+  'Wrench',
+  'Hammer',
+  'Puzzle',
+  'Layers',
+  'Layout',
+  'Palette',
+  'Paintbrush',
+  'PenTool',
+  'Image',
+  'Camera',
+  'Film',
+  'Music',
+  'Play',
+  'Shield',
+  'Lock',
+  'Key',
+  'Fingerprint',
+  'UserCheck',
+  'UserPlus',
+  'Users2',
+  'UsersRound',
 ];
 
 interface IconPickerProps {
@@ -49,16 +101,14 @@ export default function IconPicker({
 
   // Get the icon component dynamically
   const IconComponent = value
-    ? (LucideIcons as Record<string, React.ComponentType<{ className?: string }>>)[value]
+    ? (LucideIcons as unknown as Record<string, React.ComponentType<{ className?: string }>>)[value]
     : null;
 
   // Filter icons based on search
   const filteredIcons = useMemo(() => {
     if (!search.trim()) return COMMON_ICONS;
     const searchLower = search.toLowerCase();
-    return COMMON_ICONS.filter(icon =>
-      icon.toLowerCase().includes(searchLower)
-    );
+    return COMMON_ICONS.filter(icon => icon.toLowerCase().includes(searchLower));
   }, [search]);
 
   // Get first letter for default avatar
@@ -100,7 +150,12 @@ export default function IconPicker({
           />
           <div className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto">
             {filteredIcons.map(iconName => {
-              const Icon = (LucideIcons as Record<string, React.ComponentType<{ className?: string }>>)[iconName];
+              const Icon = (
+                LucideIcons as unknown as Record<
+                  string,
+                  React.ComponentType<{ className?: string }>
+                >
+              )[iconName];
               if (!Icon) return null;
               const isSelected = value === iconName;
               return (
@@ -121,9 +176,7 @@ export default function IconPicker({
             })}
           </div>
           {filteredIcons.length === 0 && (
-            <p className="text-sm text-text-muted text-center py-2">
-              {t('teams.no_match')}
-            </p>
+            <p className="text-sm text-text-muted text-center py-2">{t('teams.no_match')}</p>
           )}
           {value && (
             <Button

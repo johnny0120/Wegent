@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
 
 from app.api.dependencies import get_db
 from app.core import security
