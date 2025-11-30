@@ -39,7 +39,9 @@ class UnifiedShell(BaseModel):
     baseImage: Optional[str] = None
     baseShellRef: Optional[str] = None
     supportModel: Optional[List[str]] = None
-    executionType: Optional[str] = None  # 'local_engine' or 'external_api' (from labels)
+    executionType: Optional[str] = (
+        None  # 'local_engine' or 'external_api' (from labels)
+    )
 
 
 class ShellCreateRequest(BaseModel):
@@ -151,23 +153,23 @@ def list_unified_shells(
     current_user: User = Depends(security.get_current_user),
 ):
     """
-    Get unified list of all available shells (both public and user-defined).
+        Get unified list of all available shells (both public and user-defined).
 
-    Each shell includes a 'type' field ('public' or 'user') to identify its source.
-Response:
-{
-  "data": [
+        Each shell includes a 'type' field ('public' or 'user') to identify its source.
+    Response:
     {
-      "name": "shell-name",
-      "type": "public" | "user",
-      "displayName": "Human Readable Name",
-      "shellType": "ClaudeCode",
-      "baseImage": "ghcr.io/...",
-      "executionType": "local_engine" | "external_api"
+      "data": [
+        {
+          "name": "shell-name",
+          "type": "public" | "user",
+          "displayName": "Human Readable Name",
+          "shellType": "ClaudeCode",
+          "baseImage": "ghcr.io/...",
+          "executionType": "local_engine" | "external_api"
+        }
+      ]
     }
-  ]
-}
-    }
+        }
     """
     result = []
 
@@ -688,7 +690,9 @@ async def _update_validation_status(
         return False
 
 
-@router.get("/validation-status/{validation_id}", response_model=ValidationStatusResponse)
+@router.get(
+    "/validation-status/{validation_id}", response_model=ValidationStatusResponse
+)
 async def get_validation_status(
     validation_id: str,
     current_user: User = Depends(security.get_current_user),
@@ -722,7 +726,9 @@ async def get_validation_status(
         raise
     except Exception as e:
         logger.error(f"Error getting validation status: {e}")
-        raise HTTPException(status_code=500, detail=f"Error getting validation status: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error getting validation status: {str(e)}"
+        )
 
 
 @router.post("/validation-status/{validation_id}")
@@ -749,11 +755,15 @@ async def update_validation_status(
         )
 
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to update validation status")
+            raise HTTPException(
+                status_code=500, detail="Failed to update validation status"
+            )
 
         return {"status": "success", "message": "Validation status updated"}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error updating validation status: {e}")
-        raise HTTPException(status_code=500, detail=f"Error updating validation status: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error updating validation status: {str(e)}"
+        )

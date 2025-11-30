@@ -27,13 +27,13 @@ def get_shell_by_name(
 ) -> Optional[Union[Kind, PublicShell]]:
     """
     Get a Shell by name, first checking user's custom shells, then public shells.
-    
+
     Args:
         db: Database session
         shell_name: Name of the shell (e.g., 'ClaudeCode', 'my-custom-shell')
         user_id: User ID
         namespace: Namespace (default: 'default')
-        
+
     Returns:
         Kind object (for user shells) or PublicShell object (for public shells),
         or None if not found.
@@ -50,11 +50,11 @@ def get_shell_by_name(
         )
         .first()
     )
-    
+
     if user_shell:
         logger.debug(f"Found user shell '{shell_name}' for user {user_id}")
         return user_shell
-    
+
     # Then, try to find in public shells
     public_shell = (
         db.query(PublicShell)
@@ -65,11 +65,11 @@ def get_shell_by_name(
         )
         .first()
     )
-    
+
     if public_shell:
         logger.debug(f"Found public shell '{shell_name}'")
         return public_shell
-    
+
     logger.warning(f"Shell '{shell_name}' not found in user shells or public shells")
     return None
 
@@ -79,16 +79,16 @@ def get_shell_info_by_name(
 ) -> Dict[str, Any]:
     """
     Get shell information by shell name.
-    
+
     First tries to find a user-defined custom shell in kinds table,
     then falls back to public shells in public_shells table.
-    
+
     Args:
         db: Database session
         shell_name: Name of the shell (e.g., 'ClaudeCode', 'my-custom-shell')
         user_id: User ID
         namespace: Namespace (default: 'default')
-        
+
     Returns:
         Dict with:
             - shell_type: The actual agent type (e.g., 'ClaudeCode', 'Agno', 'Dify')
@@ -96,7 +96,7 @@ def get_shell_info_by_name(
             - execution_type: 'local_engine' or 'external_api'
             - base_image: Base Docker image (optional)
             - is_custom: Whether this is a user-defined custom shell
-            
+
     Raises:
         ValueError: If shell is not found
     """
@@ -112,7 +112,7 @@ def get_shell_info_by_name(
         )
         .first()
     )
-    
+
     if user_shell and isinstance(user_shell.json, dict):
         shell_crd = Shell.model_validate(user_shell.json)
         # For custom shells, shellType contains the actual agent type
@@ -131,7 +131,7 @@ def get_shell_info_by_name(
             f"base_image={result['base_image']}"
         )
         return result
-    
+
     # Then, try to find in public shells
     public_shell = (
         db.query(PublicShell)
@@ -142,7 +142,7 @@ def get_shell_info_by_name(
         )
         .first()
     )
-    
+
     if public_shell and isinstance(public_shell.json, dict):
         shell_crd = Shell.model_validate(public_shell.json)
         # For public shells, the shell name IS the shell type (e.g., 'ClaudeCode')
@@ -161,7 +161,7 @@ def get_shell_info_by_name(
             f"base_image={result['base_image']}"
         )
         return result
-    
+
     # Shell not found - raise error instead of using fallback
     raise ValueError(f"Shell '{shell_name}' not found in user shells or public shells")
 
@@ -182,7 +182,7 @@ def get_shell_type(
 
     Returns:
         "local_engine" or "external_api"
-        
+
     Raises:
         ValueError: If shell is not found
     """
@@ -235,36 +235,31 @@ def get_shells_by_names_batch(
 ) -> Dict[Tuple[str, str], Union[Kind, PublicShell]]:
     """
     Batch-fetch shells by (name, namespace) keys.
-    
+
     First queries user's custom shells from kinds table, then queries public shells
     for any missing keys.
-    
+
     Args:
         db: Database session
         shell_keys: Set of (name, namespace) tuples to query
         user_id: User ID
-        
+
     Returns:
         Dict mapping (name, namespace) to Kind or PublicShell objects
     """
     if not shell_keys:
         return {}
-    
+
     shell_map: Dict[Tuple[str, str], Union[Kind, PublicShell]] = {}
-    
+
     # Build OR filter for user shells
     def build_user_shell_or_filters(keys: Set[Tuple[str, str]]):
         return (
-            or_(
-                *[
-                    and_(Kind.name == n, Kind.namespace == ns)
-                    for (n, ns) in keys
-                ]
-            )
+            or_(*[and_(Kind.name == n, Kind.namespace == ns) for (n, ns) in keys])
             if keys
             else None
         )
-    
+
     # Query user's custom shells first
     user_shell_filter = build_user_shell_or_filters(shell_keys)
     if user_shell_filter is not None:
@@ -278,15 +273,16 @@ def get_shells_by_names_batch(
             .filter(user_shell_filter)
             .all()
         )
-        
+
         for shell in user_shells:
             shell_map[(shell.name, shell.namespace)] = shell
-    
+
     # Find missing keys and query public shells
     found_keys = set(shell_map.keys())
     missing_keys = shell_keys - found_keys
-    
+
     if missing_keys:
+
         def build_public_shell_or_filters(keys: Set[Tuple[str, str]]):
             return (
                 or_(
@@ -298,7 +294,7 @@ def get_shells_by_names_batch(
                 if keys
                 else None
             )
-        
+
         public_shell_filter = build_public_shell_or_filters(missing_keys)
         if public_shell_filter is not None:
             public_shells = (
@@ -307,14 +303,14 @@ def get_shells_by_names_batch(
                 .filter(public_shell_filter)
                 .all()
             )
-            
+
             for shell in public_shells:
                 shell_map[(shell.name, shell.namespace)] = shell
-    
+
     logger.debug(
         f"Batch fetched {len(shell_map)} shells for {len(shell_keys)} keys "
         f"(user: {len(shell_map) - len(missing_keys) + len(found_keys)}, "
         f"public: {len(shell_map) - len(found_keys)})"
     )
-    
+
     return shell_map

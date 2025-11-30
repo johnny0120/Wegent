@@ -424,10 +424,12 @@ class ExecutorKindsService(
                     if public_shell and public_shell.json:
                         shell_crd_temp = Shell.model_validate(public_shell.json)
                         shell_base_image = shell_crd_temp.spec.baseImage
+
                         # Create a mock shell object for compatibility
                         class MockShell:
                             def __init__(self, json_data):
                                 self.json = json_data
+
                         shell = MockShell(public_shell.json)
 
                 # Get model for agent config (modelRef is optional)

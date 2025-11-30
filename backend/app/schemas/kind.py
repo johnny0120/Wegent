@@ -115,7 +115,9 @@ class ShellSpec(BaseModel):
     )  # Agent type: 'ClaudeCode', 'Agno', 'Dify', etc. Accepts 'runtime' for backward compatibility
     supportModel: Optional[List[str]] = None
     baseImage: Optional[str] = None  # Custom base image address for user-defined shells
-    baseShellRef: Optional[str] = None  # Reference to base public shell (e.g., "ClaudeCode")
+    baseShellRef: Optional[str] = (
+        None  # Reference to base public shell (e.g., "ClaudeCode")
+    )
 
 
 class ShellStatus(Status):

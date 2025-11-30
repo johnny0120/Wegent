@@ -26,7 +26,9 @@ class BotUpdate(BaseModel):
     """Bot update model - request schema"""
 
     name: Optional[str] = None
-    shell_name: Optional[str] = None  # Shell name (e.g., 'ClaudeCode', 'Agno', 'my-custom-shell')
+    shell_name: Optional[str] = (
+        None  # Shell name (e.g., 'ClaudeCode', 'Agno', 'my-custom-shell')
+    )
     agent_config: Optional[dict[str, Any]] = None
     system_prompt: Optional[str] = None
     mcp_servers: Optional[dict[str, Any]] = None

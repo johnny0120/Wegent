@@ -241,13 +241,14 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
     ) -> Dict[str, Any]:
         """
         Create user Bot using kinds table.
-        
+
         Bot's shellRef directly points to the user-selected Shell (custom or public),
         instead of creating a dedicated shell for each bot.
         """
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         # Check duplicate bot name under the same user (only active bots)
         existing = (
             db.query(Kind)
@@ -349,7 +350,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             shell_info = get_shell_info_by_name(db, obj_in.shell_name, user_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        
+
         logger.info(
             f"[DEBUG] create_with_user: shell_name={obj_in.shell_name}, "
             f"resolved shell_type={shell_info['shell_type']}, "
@@ -557,7 +558,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 shell_info = get_shell_info_by_name(db, new_shell_name, user_id)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
-            
+
             logger.info(
                 f"[DEBUG] update_with_user: shell_name={new_shell_name}, "
                 f"resolved shell_type={shell_info['shell_type']}, "
@@ -572,7 +573,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             bot_crd.spec.shellRef.namespace = "default"
             bot.json = bot_crd.model_dump()
             flag_modified(bot, "json")
-            
+
             # Update shell reference for response
             shell = get_shell_by_name(db, new_shell_name, user_id)
 
@@ -791,7 +792,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
     def delete_with_user(self, db: Session, *, bot_id: int, user_id: int) -> None:
         """
         Delete user Bot and related components.
-        
+
         Note: Shell is not deleted because it's now a reference to user's custom shell
         or public shell, not a dedicated shell for this bot.
         """
@@ -890,7 +891,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         # Get shell - try user's custom shells first, then public shells
         shell_ref_name = bot_crd.spec.shellRef.name
         shell = get_shell_by_name(db, shell_ref_name, user_id)
-        
+
         logger.info(
             f"[DEBUG] _get_bot_components: shellRef.name={shell_ref_name}, "
             f"shell found={shell is not None}, "
