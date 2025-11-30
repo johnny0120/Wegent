@@ -58,8 +58,7 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
   const [originalBaseImage] = useState(shell?.baseImage || '') // Track original value for edit mode
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
-  const [validationId, setValidationId] = useState<string | null>(null)
-  const [pollingCount, setPollingCount] = useState(0)
+  const [_validationId, setValidationId] = useState<string | null>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const [validationStatus, setValidationStatus] = useState<{
     status: ValidationStage | 'error' | 'success' | 'failed'
@@ -104,12 +103,10 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
         clearInterval(pollingRef.current)
       }
 
-      setPollingCount(0)
       let count = 0
 
       pollingRef.current = setInterval(async () => {
         count++
-        setPollingCount(count)
 
         if (count >= MAX_POLLING_COUNT) {
           // Timeout
