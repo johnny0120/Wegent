@@ -35,11 +35,11 @@ class UnifiedShell(BaseModel):
     name: str
     type: str  # 'public' or 'user'
     displayName: Optional[str] = None
-    runtime: str
+    shellType: str  # Agent type: 'ClaudeCode', 'Agno', 'Dify', etc.
     baseImage: Optional[str] = None
     baseShellRef: Optional[str] = None
     supportModel: Optional[List[str]] = None
-    shellType: Optional[str] = None  # 'local_engine' or 'external_api'
+    executionType: Optional[str] = None  # 'local_engine' or 'external_api' (from labels)
 
 
 class ShellCreateRequest(BaseModel):
@@ -121,11 +121,11 @@ def _public_shell_to_unified(shell: PublicShell) -> UnifiedShell:
         name=shell.name,
         type="public",
         displayName=shell_crd.metadata.displayName or shell.name,
-        runtime=shell_crd.spec.runtime,
+        shellType=shell_crd.spec.shellType,
         baseImage=shell_crd.spec.baseImage,
         baseShellRef=shell_crd.spec.baseShellRef,
         supportModel=shell_crd.spec.supportModel,
-        shellType=labels.get("type"),
+        executionType=labels.get("type"),
     )
 
 
@@ -137,11 +137,11 @@ def _user_shell_to_unified(kind: Kind) -> UnifiedShell:
         name=kind.name,
         type="user",
         displayName=shell_crd.metadata.displayName or kind.name,
-        runtime=shell_crd.spec.runtime,
+        shellType=shell_crd.spec.shellType,
         baseImage=shell_crd.spec.baseImage,
         baseShellRef=shell_crd.spec.baseShellRef,
         supportModel=shell_crd.spec.supportModel,
-        shellType=labels.get("type"),
+        executionType=labels.get("type"),
     )
 
 
@@ -154,19 +154,19 @@ def list_unified_shells(
     Get unified list of all available shells (both public and user-defined).
 
     Each shell includes a 'type' field ('public' or 'user') to identify its source.
-
-    Response:
+Response:
+{
+  "data": [
     {
-      "data": [
-        {
-          "name": "shell-name",
-          "type": "public" | "user",
-          "displayName": "Human Readable Name",
-          "runtime": "ClaudeCode",
-          "baseImage": "ghcr.io/...",
-          "shellType": "local_engine" | "external_api"
-        }
-      ]
+      "name": "shell-name",
+      "type": "public" | "user",
+      "displayName": "Human Readable Name",
+      "shellType": "ClaudeCode",
+      "baseImage": "ghcr.io/...",
+      "executionType": "local_engine" | "external_api"
+    }
+  ]
+}
     }
     """
     result = []
@@ -311,13 +311,24 @@ def create_shell(
             detail="Base shell must be a local_engine type (not external_api)",
         )
 
-    # Validate baseImage format (basic URL validation)
+    # Validate baseImage format
+    # Docker image name formats:
+    # - image (e.g., ubuntu)
+    # - image:tag (e.g., ubuntu:22.04)
+    # - registry/image:tag (e.g., docker.io/library/ubuntu:22.04)
+    # - registry:port/image:tag (e.g., localhost:5000/myimage:latest)
+    # Pattern breakdown:
+    # - Optional registry with optional port: ([a-z0-9.-]+(:[0-9]+)?/)?
+    # - Image path (one or more segments): [a-z0-9._-]+(/[a-z0-9._-]+)*
+    # - Optional tag: (:[a-z0-9._-]+)?
+    # - Optional digest: (@sha256:[a-f0-9]+)?
+    docker_image_pattern = r"^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._-]+(/[a-z0-9._-]+)*(:[a-z0-9._-]+)?(@sha256:[a-f0-9]+)?$"
     if not request.baseImage or not re.match(
-        r"^[a-z0-9.-]+(/[a-z0-9._-]+)+:[a-z0-9._-]+$", request.baseImage, re.IGNORECASE
+        docker_image_pattern, request.baseImage, re.IGNORECASE
     ):
         raise HTTPException(
             status_code=400,
-            detail="Invalid base image format. Expected format: registry/image:tag",
+            detail="Invalid base image format. Expected formats: image, image:tag, registry/image:tag, or registry:port/image:tag",
         )
 
     # Create Shell CRD
@@ -331,7 +342,7 @@ def create_shell(
             "labels": {"type": "local_engine"},  # User shells inherit local_engine type
         },
         "spec": {
-            "runtime": base_shell_crd.spec.runtime,  # Inherit runtime from base shell
+            "shellType": base_shell_crd.spec.shellType,  # Inherit shellType from base shell
             "supportModel": base_shell_crd.spec.supportModel or [],
             "baseImage": request.baseImage,
             "baseShellRef": request.baseShellRef,
@@ -390,14 +401,20 @@ def update_shell(
 
     if request.baseImage is not None:
         # Validate baseImage format
+        # Docker image name formats:
+        # - image (e.g., ubuntu)
+        # - image:tag (e.g., ubuntu:22.04)
+        # - registry/image:tag (e.g., docker.io/library/ubuntu:22.04)
+        # - registry:port/image:tag (e.g., localhost:5000/myimage:latest)
+        docker_image_pattern = r"^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._-]+(/[a-z0-9._-]+)*(:[a-z0-9._-]+)?(@sha256:[a-f0-9]+)?$"
         if not re.match(
-            r"^[a-z0-9.-]+(/[a-z0-9._-]+)+:[a-z0-9._-]+$",
+            docker_image_pattern,
             request.baseImage,
             re.IGNORECASE,
         ):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid base image format. Expected format: registry/image:tag",
+                detail="Invalid base image format. Expected formats: image, image:tag, registry/image:tag, or registry:port/image:tag",
             )
         shell_crd.spec.baseImage = request.baseImage
 
@@ -518,8 +535,9 @@ async def validate_image(
         logger.info(f"Submitting image validation task to executor manager: {image}")
 
         # Call executor manager's validate-image API with validation_id
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
+        # Use AsyncClient to avoid blocking the event loop
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
                 validate_url,
                 json={
                     "image": image,

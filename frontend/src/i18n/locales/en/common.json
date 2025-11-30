@@ -125,7 +125,9 @@
     "dify_parameters_loading": "Loading parameters...",
     "dify_parameters_load_failed": "Failed to load application parameters",
     "dify_parameters_refresh": "Refresh parameters",
-    "dify_no_parameters": "No parameters configured for this application."
+    "dify_no_parameters": "No parameters configured for this application.",
+    "custom_shell": "Custom",
+    "public_model": "Public"
   },
   "bots": {
     "title": "AI Assistant",

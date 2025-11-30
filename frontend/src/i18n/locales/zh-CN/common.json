@@ -140,7 +140,9 @@
     "dify_parameters_loading": "加载参数中...",
     "dify_parameters_load_failed": "加载应用参数失败",
     "dify_parameters_refresh": "刷新参数",
-    "dify_no_parameters": "此应用未配置输入参数。"
+    "dify_no_parameters": "此应用未配置输入参数。",
+    "custom_shell": "自定义",
+    "public_model": "公共"
   },
   "messages": {
     "copy_markdown": "复制 Markdown 内容",
@@ -313,7 +315,7 @@
     "bot": "机器人",
     "team": "机器人",
     "models": "模型",
-    "shells": "Shell",
+    "shells": "执行器",
     "sections": {
       "general": "通用"
     }

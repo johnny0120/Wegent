@@ -14,6 +14,7 @@ from email import utils
 import json
 import os
 import subprocess
+import time
 from typing import Any, Dict, List, Optional, Tuple
 import requests
 import httpx
@@ -93,6 +94,9 @@ class DockerExecutor(Executor):
         user_name = task_info["user_name"]
         executor_name = task_info["executor_name"]
         
+        # Check if this is a validation task (validation tasks use negative task_id)
+        is_validation_task = task.get("type") == "validation"
+        
         # Initialize execution status
         execution_status = {
             "status": "success",
@@ -115,15 +119,18 @@ class DockerExecutor(Executor):
             # Unified exception handling
             self._handle_execution_exception(e, task_id, execution_status)
         
-        # Call callback function
-        self._call_callback(
-            callback,
-            task_id,
-            subtask_id,
-            execution_status["executor_name"],
-            execution_status["progress"],
-            execution_status["callback_status"]
-        )
+        # Call callback function only for regular tasks (not validation tasks)
+        # Validation tasks don't exist in the database, so we skip the callback
+        # to avoid 404 errors when trying to update non-existent task status
+        if not is_validation_task:
+            self._call_callback(
+                callback,
+                task_id,
+                subtask_id,
+                execution_status["executor_name"],
+                execution_status["progress"],
+                execution_status["callback_status"]
+            )
         
         # Return unified result structure
         return self._create_result_response(execution_status)
@@ -177,12 +184,17 @@ class DockerExecutor(Executor):
         """Create new Docker container"""
         executor_name = status["executor_name"]
         task_id = task_info["task_id"]
+        is_validation_task = task.get("type") == "validation"
 
         # Check for custom base_image from bot configuration
         base_image = self._get_base_image_from_task(task)
 
         # Get executor image
         executor_image = self._get_executor_image(task)
+
+        # If using custom base_image, ensure executor binary is up-to-date
+        if base_image:
+            self._ensure_executor_binary_updated(executor_image)
 
         # Prepare Docker command with optional base_image support
         cmd = self._prepare_docker_command(task, task_info, executor_name, executor_image, base_image)
@@ -198,7 +210,7 @@ class DockerExecutor(Executor):
             logger.info(f"Started Docker container {executor_name} with ID {container_id}")
 
             # For validation tasks, report starting_container stage
-            if task.get("type") == "validation":
+            if is_validation_task:
                 self._report_validation_stage(
                     task,
                     stage="starting_container",
@@ -207,9 +219,14 @@ class DockerExecutor(Executor):
                     message="Container started, running validation checks",
                 )
 
+            # Check if container is still running after a short delay
+            # This catches cases where the container exits immediately (e.g., binary incompatibility)
+            if base_image:
+                self._check_container_health(task, executor_name, is_validation_task)
+
         except subprocess.CalledProcessError as e:
             # For validation tasks, report image pull or container start failure
-            if task.get("type") == "validation":
+            if is_validation_task:
                 error_msg = e.stderr or str(e)
                 stage = "pulling_image" if "pull" in error_msg.lower() or "not found" in error_msg.lower() else "starting_container"
                 self._report_validation_stage(
@@ -222,6 +239,151 @@ class DockerExecutor(Executor):
                     valid=False,
                 )
             raise
+
+    def _check_container_health(self, task: Dict[str, Any], executor_name: str, is_validation_task: bool) -> None:
+        """
+        Check if container is still running after startup.
+        
+        This catches cases where the container exits immediately due to:
+        - Binary incompatibility (glibc vs musl)
+        - Missing dependencies
+        - Entrypoint errors
+        
+        Args:
+            task: Task data
+            executor_name: Name of the container to check
+            is_validation_task: Whether this is a validation task
+        """
+        # Wait a short time for container to potentially fail
+        time.sleep(2)
+        
+        try:
+            # Check container status
+            inspect_result = self.subprocess.run(
+                ["docker", "inspect", "--format", "{{.State.Status}}", executor_name],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if inspect_result.returncode != 0:
+                logger.warning(f"Failed to inspect container {executor_name}")
+                return
+            
+            container_status = inspect_result.stdout.strip()
+            
+            if container_status == "exited":
+                # Container has exited, get logs to understand why
+                logs_result = self.subprocess.run(
+                    ["docker", "logs", "--tail", "50", executor_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                # Get exit code
+                exit_code_result = self.subprocess.run(
+                    ["docker", "inspect", "--format", "{{.State.ExitCode}}", executor_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                exit_code = exit_code_result.stdout.strip() if exit_code_result.returncode == 0 else "unknown"
+                
+                # Combine stdout and stderr for logs
+                container_logs = logs_result.stdout or logs_result.stderr or "No logs available"
+                
+                # Detect common error patterns
+                error_msg = self._analyze_container_failure(container_logs, exit_code)
+                
+                logger.error(f"Container {executor_name} exited immediately with code {exit_code}: {error_msg}")
+                
+                # Report failure for validation tasks
+                if is_validation_task:
+                    self._report_validation_stage(
+                        task,
+                        stage="starting_container",
+                        status="failed",
+                        progress=100,
+                        message=f"Container exited immediately: {error_msg}",
+                        error_message=error_msg,
+                        valid=False,
+                    )
+                    
+                    # Clean up the failed container
+                    try:
+                        self.subprocess.run(
+                            ["docker", "rm", "-f", executor_name],
+                            capture_output=True,
+                            timeout=10
+                        )
+                    except Exception:
+                        pass
+                    
+                    # Raise exception to mark task as failed
+                    raise RuntimeError(f"Container exited immediately: {error_msg}")
+                    
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Timeout checking container health for {executor_name}")
+        except RuntimeError:
+            # Re-raise RuntimeError from container failure
+            raise
+        except Exception as e:
+            logger.warning(f"Error checking container health: {e}")
+
+    def _analyze_container_failure(self, logs: str, exit_code: str) -> str:
+        """
+        Analyze container logs to determine the cause of failure.
+        
+        Args:
+            logs: Container logs
+            exit_code: Container exit code
+            
+        Returns:
+            Human-readable error message
+        """
+        logs_lower = logs.lower()
+        
+        # Check for common error patterns
+        if "no such file or directory" in logs_lower and "exec" in logs_lower:
+            return "Binary incompatibility: The executor binary cannot run in this image. This usually happens when the base image uses a different C library (e.g., Alpine uses musl while the executor was built with glibc). Please use a glibc-based image like Ubuntu, Debian, or AlmaLinux."
+        
+        if "not found" in logs_lower and ("libc" in logs_lower or "ld-linux" in logs_lower):
+            return "Missing C library: The base image is missing required system libraries. Please use a glibc-based image."
+        
+        if "permission denied" in logs_lower:
+            return "Permission denied: The executor binary does not have execute permissions or the user lacks required permissions."
+        
+        if exit_code == "127":
+            return "Command not found: The entrypoint or command could not be found in the container."
+        
+        if exit_code == "126":
+            return "Permission denied or not executable: The entrypoint exists but cannot be executed."
+        
+        # Default message with logs excerpt
+        logs_excerpt = logs[:500] if len(logs) > 500 else logs
+        return f"Container exited with code {exit_code}. Logs: {logs_excerpt}"
+
+    def _ensure_executor_binary_updated(self, executor_image: str) -> None:
+        """
+        Ensure executor binary in Named Volume is up-to-date before starting container.
+
+        This method checks if the executor binary in the Named Volume matches the
+        current executor image digest. If not, it extracts the latest binary.
+
+        Args:
+            executor_image: The executor image to extract binary from
+        """
+        from executors.docker.binary_extractor import extract_executor_binary
+
+        try:
+            logger.info(f"Checking executor binary for image: {executor_image}")
+            if extract_executor_binary():
+                logger.info("Executor binary is up-to-date")
+            else:
+                logger.warning("Failed to update executor binary, using existing version")
+        except Exception as e:
+            logger.warning(f"Error checking executor binary: {e}, using existing version")
 
     def _get_base_image_from_task(self, task: Dict[str, Any]) -> Optional[str]:
         """Extract custom base_image from task's bot configuration"""

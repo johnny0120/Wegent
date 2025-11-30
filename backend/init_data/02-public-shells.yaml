@@ -12,7 +12,7 @@ metadata:
   labels:
     type: local_engine
 spec:
-  runtime: ClaudeCode
+  shellType: ClaudeCode
   supportModel: []
   baseImage: ghcr.io/wecode-ai/wegent-base-python3.12:1.0.0
 status:
@@ -26,7 +26,7 @@ metadata:
   labels:
     type: local_engine
 spec:
-  runtime: Agno
+  shellType: Agno
   supportModel: []
   baseImage: ghcr.io/wecode-ai/wegent-base-python3.12:1.0.0
 status:
@@ -40,7 +40,7 @@ metadata:
   labels:
     type: external_api
 spec:
-  runtime: Dify
+  shellType: Dify
   supportModel: []
 status:
   state: Available

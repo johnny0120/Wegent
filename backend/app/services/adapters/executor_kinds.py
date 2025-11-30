@@ -449,7 +449,7 @@ class ExecutorKindsService(
                 system_prompt = ""
                 mcp_servers = {}
                 skills = []
-                agent_name = ""
+                shell_type = ""
                 agent_config = {}
 
                 if ghost and ghost.json:
@@ -463,7 +463,7 @@ class ExecutorKindsService(
 
                 if shell and shell.json:
                     shell_crd = Shell.model_validate(shell.json)
-                    agent_name = shell_crd.spec.runtime
+                    shell_type = shell_crd.spec.shellType
                     # Extract baseImage from shell (user-defined shell overrides public shell)
                     if shell_crd.spec.baseImage:
                         shell_base_image = shell_crd.spec.baseImage
@@ -612,7 +612,7 @@ class ExecutorKindsService(
                     {
                         "id": bot.id,
                         "name": bot.name,
-                        "agent_name": agent_name,
+                        "shell_type": shell_type,
                         "agent_config": agent_config_data,
                         "system_prompt": bot_prompt,
                         "mcp_servers": mcp_servers,

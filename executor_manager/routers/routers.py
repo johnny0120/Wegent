@@ -69,6 +69,7 @@ class CallbackRequest(BaseModel):
     status: Optional[str] = None
     error_message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    task_type: Optional[str] = None  # Task type: "validation" for validation tasks, None for regular tasks
 
 
 @app.post("/executor-manager/callback")
@@ -86,11 +87,21 @@ async def callback_handler(request: CallbackRequest, http_request: Request):
         client_ip = http_request.client.host if http_request.client else "unknown"
         logger.info(f"Received callback: body={request} from {client_ip}")
 
-        # Check if this is a validation task callback (has validation_id in result)
-        if request.result and request.result.get("validation_id"):
+        # Check if this is a validation task callback
+        # Primary check: task_type == "validation"
+        # Fallback check: validation_id in result (for backward compatibility)
+        is_validation_task = request.task_type == "validation" or (request.result and request.result.get("validation_id"))
+        if is_validation_task:
             await _forward_validation_callback(request)
+            # For validation tasks, we only need to forward to backend for Redis update
+            # No need to update task status in database (validation tasks don't exist in DB)
+            logger.info(f"Successfully processed validation callback for task {request.task_id}")
+            return {
+                "status": "success",
+                "message": f"Successfully processed validation callback for task {request.task_id}",
+            }
 
-        # Directly call the API client to update task status
+        # For regular tasks, update task status in database
         success, result = api_client.update_task_status_by_fields(
             task_id=request.task_id,
             subtask_id=request.subtask_id,
@@ -118,29 +129,39 @@ async def _forward_validation_callback(request: CallbackRequest):
     """Forward validation task callback to Backend for Redis status update"""
     import httpx
 
-    validation_id = request.result.get("validation_id")
+    # Get validation_id from result if available
+    validation_id = request.result.get("validation_id") if request.result else None
     if not validation_id:
+        # If no validation_id in result, we can't forward to backend
+        # This can happen when task_type is "validation" but result is None (e.g., early failure)
+        logger.warning(f"Validation callback for task {request.task_id} has no validation_id, skipping forward")
         return
 
-    # Map callback status to validation status
+    # Map callback status to validation status (case-insensitive)
+    status_lower = request.status.lower() if request.status else ""
     status_mapping = {
         "running": "running_checks",
         "completed": "completed",
         "failed": "completed",
     }
-    validation_status = status_mapping.get(request.status, request.status)
+    validation_status = status_mapping.get(status_lower, request.status)
 
     # Extract validation result from callback
     validation_result = request.result.get("validation_result", {})
     stage = request.result.get("stage", "Running checks")
     progress = request.progress
 
+    # For failed status, ensure valid is False if not explicitly set
+    valid_value = validation_result.get("valid")
+    if status_lower == "failed" and valid_value is None:
+        valid_value = False
+
     # Build update payload
     update_payload = {
         "status": validation_status,
         "stage": stage,
         "progress": progress,
-        "valid": validation_result.get("valid"),
+        "valid": valid_value,
         "checks": validation_result.get("checks"),
         "errors": validation_result.get("errors"),
         "errorMessage": request.error_message,
@@ -154,7 +175,7 @@ async def _forward_validation_callback(request: CallbackRequest):
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(update_url, json=update_payload)
             if response.status_code == 200:
-                logger.info(f"Successfully forwarded validation callback: {validation_id} -> {validation_status}")
+                logger.info(f"Successfully forwarded validation callback: {validation_id} -> {validation_status}, valid={valid_value}")
             else:
                 logger.warning(f"Failed to forward validation callback: {response.status_code} {response.text}")
     except Exception as e:
@@ -294,7 +315,7 @@ async def validate_image(request: ValidateImageRequest, http_request: Request):
     # Build validation task data
     # Use a unique negative task_id to distinguish validation tasks from regular tasks
     import time
-    validation_task_id = -int(time.time() * 1000) % 1000000  # Negative ID for validation tasks
+    validation_task_id = -(int(time.time() * 1000) % 1000000)  # Negative ID for validation tasks
 
     validation_task = {
         "task_id": validation_task_id,

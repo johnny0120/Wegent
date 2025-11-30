@@ -2,23 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-'use client'
-import '@/features/common/scrollbar.css'
+'use client';
+import '@/features/common/scrollbar.css';
 
-import React, { useEffect, useState, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Tag } from '@/components/ui/tag'
-import {
-  CommandLineIcon,
-  PencilIcon,
-  TrashIcon,
-  GlobeAltIcon,
-} from '@heroicons/react/24/outline'
-import { Loader2 } from 'lucide-react'
-import { useToast } from '@/hooks/use-toast'
-import { useTranslation } from '@/hooks/useTranslation'
-import ShellEdit from './ShellEdit'
+import React, { useEffect, useState, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Tag } from '@/components/ui/tag';
+import { CommandLineIcon, PencilIcon, TrashIcon, GlobeAltIcon } from '@heroicons/react/24/outline';
+import { Loader2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from '@/hooks/useTranslation';
+import ShellEdit from './ShellEdit';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,77 +23,77 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { shellApis, UnifiedShell } from '@/apis/shells'
-import UnifiedAddButton from '@/components/common/UnifiedAddButton'
+} from '@/components/ui/alert-dialog';
+import { shellApis, UnifiedShell } from '@/apis/shells';
+import UnifiedAddButton from '@/components/common/UnifiedAddButton';
 
 const ShellList: React.FC = () => {
-  const { t } = useTranslation('common')
-  const { toast } = useToast()
-  const [shells, setShells] = useState<UnifiedShell[]>([])
-  const [loading, setLoading] = useState(true)
-  const [editingShell, setEditingShell] = useState<UnifiedShell | null>(null)
-  const [isCreating, setIsCreating] = useState(false)
-  const [deleteConfirmShell, setDeleteConfirmShell] = useState<UnifiedShell | null>(null)
+  const { t } = useTranslation('common');
+  const { toast } = useToast();
+  const [shells, setShells] = useState<UnifiedShell[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingShell, setEditingShell] = useState<UnifiedShell | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [deleteConfirmShell, setDeleteConfirmShell] = useState<UnifiedShell | null>(null);
 
   const fetchShells = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const response = await shellApis.getUnifiedShells()
-      setShells(response.data || [])
+      const response = await shellApis.getUnifiedShells();
+      setShells(response.data || []);
     } catch (error) {
-      console.error('Failed to fetch shells:', error)
+      console.error('Failed to fetch shells:', error);
       toast({
         variant: 'destructive',
         title: t('shells.errors.load_shells_failed'),
-      })
+      });
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [toast, t])
+  }, [toast, t]);
 
   useEffect(() => {
-    fetchShells()
-  }, [fetchShells])
+    fetchShells();
+  }, [fetchShells]);
 
   const handleDelete = async () => {
-    if (!deleteConfirmShell) return
+    if (!deleteConfirmShell) return;
 
     try {
-      await shellApis.deleteShell(deleteConfirmShell.name)
+      await shellApis.deleteShell(deleteConfirmShell.name);
       toast({
         title: t('shells.delete_success'),
-      })
-      setDeleteConfirmShell(null)
-      fetchShells()
+      });
+      setDeleteConfirmShell(null);
+      fetchShells();
     } catch (error) {
       toast({
         variant: 'destructive',
         title: t('shells.errors.delete_failed'),
         description: (error as Error).message,
-      })
+      });
     }
-  }
+  };
 
   const handleEdit = (shell: UnifiedShell) => {
-    if (shell.type === 'public') return
-    setEditingShell(shell)
-  }
+    if (shell.type === 'public') return;
+    setEditingShell(shell);
+  };
 
   const handleEditClose = () => {
-    setEditingShell(null)
-    setIsCreating(false)
-    fetchShells()
-  }
+    setEditingShell(null);
+    setIsCreating(false);
+    fetchShells();
+  };
 
-  const getShellTypeLabel = (shellType?: string | null) => {
-    if (shellType === 'local_engine') return 'Local Engine'
-    if (shellType === 'external_api') return 'External API'
-    return shellType || 'Unknown'
-  }
+  const getExecutionTypeLabel = (executionType?: string | null) => {
+    if (executionType === 'local_engine') return 'Local Engine';
+    if (executionType === 'external_api') return 'External API';
+    return executionType || 'Unknown';
+  };
 
   if (editingShell || isCreating) {
-    return <ShellEdit shell={editingShell} onClose={handleEditClose} toast={toast} />
+    return <ShellEdit shell={editingShell} onClose={handleEditClose} toast={toast} />;
   }
 
   return (
@@ -132,7 +127,7 @@ const ShellList: React.FC = () => {
           <>
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 p-1">
               {shells.map(shell => {
-                const isPublic = shell.type === 'public'
+                const isPublic = shell.type === 'public';
                 return (
                   <Card
                     key={`${shell.type}-${shell.name}`}
@@ -162,13 +157,16 @@ const ShellList: React.FC = () => {
                           )}
                           <div className="flex flex-wrap items-center gap-1.5 mt-2 min-w-0">
                             <Tag variant="default" className="capitalize">
-                              {shell.runtime}
+                              {shell.shellType}
                             </Tag>
                             <Tag variant="info" className="hidden sm:inline-flex text-xs">
-                              {getShellTypeLabel(shell.shellType)}
+                              {getExecutionTypeLabel(shell.executionType)}
                             </Tag>
                             {shell.baseImage && (
-                              <Tag variant="default" className="hidden md:inline-flex text-xs truncate max-w-[200px]">
+                              <Tag
+                                variant="default"
+                                className="hidden md:inline-flex text-xs truncate max-w-[200px]"
+                              >
                                 {shell.baseImage}
                               </Tag>
                             )}
@@ -202,7 +200,7 @@ const ShellList: React.FC = () => {
                       </div>
                     </div>
                   </Card>
-                )
+                );
               })}
             </div>
           </>
@@ -238,7 +236,7 @@ const ShellList: React.FC = () => {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
-}
+  );
+};
 
-export default ShellList
+export default ShellList;

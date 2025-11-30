@@ -9,6 +9,13 @@
 """
 Binary extractor module for extracting executor binary from official image to Named Volume.
 This enables the Init Container pattern where custom base images can run the latest executor.
+
+Uses a symlink-based versioning strategy to handle "Text file busy" errors:
+- executor.v1, executor.v2 are versioned binaries
+- executor is a symlink pointing to the current version
+- New containers use the symlink, which can be updated atomically
+- Old containers continue using their already-opened file handles
+- Only keeps 2 versions (current + previous) to minimize disk usage
 """
 
 import os
@@ -74,9 +81,37 @@ def extract_executor_binary() -> bool:
         return False
 
 
+def _get_image_digest(image: str) -> Optional[str]:
+    """
+    Get the digest of a Docker image.
+
+    Args:
+        image: The image name (with or without tag)
+
+    Returns:
+        The image digest or None if not found
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.Id}}", image],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except Exception as e:
+        logger.warning(f"Error getting image digest: {e}")
+        return None
+
+
 def _should_extract_binary(target_image: str) -> Tuple[bool, Optional[str]]:
     """
-    Check if binary extraction is needed by comparing versions.
+    Check if binary extraction is needed by comparing image digests.
+
+    Uses image digest (sha256) instead of tag to ensure we always use
+    the latest version even when the tag (e.g., 'latest') hasn't changed.
 
     Args:
         target_image: The target executor image to compare against
@@ -85,7 +120,13 @@ def _should_extract_binary(target_image: str) -> Tuple[bool, Optional[str]]:
         Tuple of (should_extract, current_version)
     """
     try:
-        # Try to read version from existing volume
+        # Get the digest of the target image
+        target_digest = _get_image_digest(target_image)
+        if not target_digest:
+            logger.info(f"Could not get digest for {target_image}, will extract")
+            return True, None
+
+        # Try to read version (digest) from existing volume
         result = subprocess.run(
             [
                 "docker", "run", "--rm",
@@ -100,10 +141,12 @@ def _should_extract_binary(target_image: str) -> Tuple[bool, Optional[str]]:
 
         if result.returncode == 0:
             current_version = result.stdout.strip()
-            if current_version == target_image:
+            # Compare digests instead of image names
+            if current_version == target_digest:
+                logger.info(f"Executor binary up-to-date (digest: {target_digest[:20]}...)")
                 return False, current_version
             else:
-                logger.info(f"Version mismatch: current={current_version}, target={target_image}")
+                logger.info(f"Digest mismatch: current={current_version[:20] if current_version else 'None'}..., target={target_digest[:20]}...")
                 return True, current_version
         else:
             # Volume doesn't exist or version file not found
@@ -120,7 +163,12 @@ def _should_extract_binary(target_image: str) -> Tuple[bool, Optional[str]]:
 
 def _extract_binary_to_volume(executor_image: str) -> bool:
     """
-    Extract executor binary from image to Named Volume.
+    Extract executor binary from image to Named Volume using symlink-based versioning.
+
+    This strategy handles "Text file busy" errors when the binary is in use:
+    1. Copy new binary to a versioned file (executor.v1 or executor.v2)
+    2. Update symlink to point to the new version (atomic operation)
+    3. Clean up old version if not in use
 
     Args:
         executor_image: The source executor image
@@ -129,6 +177,12 @@ def _extract_binary_to_volume(executor_image: str) -> bool:
         bool: True if successful, False otherwise
     """
     try:
+        # Get the digest of the image to store as version
+        image_digest = _get_image_digest(executor_image)
+        if not image_digest:
+            logger.warning(f"Could not get digest for {executor_image}, using image name as version")
+            image_digest = executor_image
+
         # Step 1: Create/ensure the Named Volume exists
         subprocess.run(
             ["docker", "volume", "create", EXECUTOR_BINARY_VOLUME],
@@ -138,12 +192,52 @@ def _extract_binary_to_volume(executor_image: str) -> bool:
         )
         logger.info(f"Created/verified volume: {EXECUTOR_BINARY_VOLUME}")
 
-        # Step 2: Extract executor binary and write version file
-        # Using a single container to copy files and write version
+        # Step 2: Extract executor binary using symlink-based versioning
+        # This handles "Text file busy" by:
+        # - Writing to a new versioned file (never overwriting running binary)
+        # - Atomically updating symlink (ln -sf is atomic on most filesystems)
+        # - Cleaning up old versions
         extract_cmd = f"""
-            cp -r /app/* /target/ 2>/dev/null || cp /app/executor /target/executor;
-            echo '{executor_image}' > {VERSION_FILE_PATH};
-            chmod +x /target/executor 2>/dev/null || true
+            set -e
+            
+            # Determine which version slot to use (v1 or v2)
+            # Read current symlink target to know which slot is in use
+            if [ -L /target/executor ]; then
+                CURRENT=$(readlink /target/executor)
+                if [ "$CURRENT" = "executor.v1" ]; then
+                    NEW_VERSION="executor.v2"
+                    OLD_VERSION="executor.v1"
+                else
+                    NEW_VERSION="executor.v1"
+                    OLD_VERSION="executor.v2"
+                fi
+            else
+                # First time setup or executor is a regular file
+                NEW_VERSION="executor.v1"
+                OLD_VERSION=""
+                # Remove old regular file if exists (might fail if busy, that's ok)
+                rm -f /target/executor 2>/dev/null || true
+            fi
+            
+            # Copy new binary to versioned file
+            cp /app/executor /target/$NEW_VERSION
+            chmod +x /target/$NEW_VERSION
+            
+            # Atomically update symlink using ln -sf
+            # This creates a temp symlink and renames it (atomic on POSIX)
+            ln -sf $NEW_VERSION /target/executor.tmp
+            mv -f /target/executor.tmp /target/executor
+            
+            # Write version file only after successful symlink update
+            echo '{image_digest}' > {VERSION_FILE_PATH}
+            
+            # Clean up old version (will succeed even if file is busy -
+            # the file will be deleted when last process closes it)
+            if [ -n "$OLD_VERSION" ] && [ -f "/target/$OLD_VERSION" ]; then
+                rm -f /target/$OLD_VERSION 2>/dev/null || true
+            fi
+            
+            echo "SUCCESS: Updated executor symlink to $NEW_VERSION"
         """
 
         result = subprocess.run(
@@ -162,7 +256,9 @@ def _extract_binary_to_volume(executor_image: str) -> bool:
             logger.error(f"Failed to extract binary: {result.stderr}")
             return False
 
-        logger.info("Binary extraction completed successfully")
+        logger.info(f"Binary extraction completed successfully (digest: {image_digest[:20]}...)")
+        if result.stdout:
+            logger.debug(f"Extraction output: {result.stdout.strip()}")
         return True
 
     except subprocess.TimeoutExpired:
