@@ -242,8 +242,16 @@ export default function ModelSelector({
       return;
     }
     // Parse value format: "modelName:modelType"
-    const [modelName, modelType] = value.split(':');
-    const model = filteredModels.find(m => m.name === modelName && m.type === modelType);
+    const colonIndex = value.indexOf(':');
+    const modelName = colonIndex >= 0 ? value.substring(0, colonIndex) : value;
+    const modelType = colonIndex >= 0 ? value.substring(colonIndex + 1) : '';
+    // Find model by name, and by type if provided
+    const model = filteredModels.find(m => {
+      if (m.name !== modelName) return false;
+      // If modelType is empty or undefined, match any type
+      if (!modelType) return true;
+      return m.type === modelType;
+    });
     if (model) {
       setSelectedModel(model);
     }
