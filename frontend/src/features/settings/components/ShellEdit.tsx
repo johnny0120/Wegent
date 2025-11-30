@@ -4,7 +4,7 @@
 
 'use client'
 
-import React, { useCallback, useState, useEffect } from 'react'
+import React, { useCallback, useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,10 +15,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Progress } from '@/components/ui/progress'
 import { Loader2 } from 'lucide-react'
 import { BeakerIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
 import { useTranslation } from '@/hooks/useTranslation'
-import { shellApis, UnifiedShell, ImageCheckResult } from '@/apis/shells'
+import {
+  shellApis,
+  UnifiedShell,
+  ImageCheckResult,
+  ValidationStage,
+  ValidationStatusResponse,
+} from '@/apis/shells'
+
+// Polling configuration
+const POLLING_INTERVAL = 2000 // 2 seconds
+const MAX_POLLING_COUNT = 60 // 60 * 2s = 120 seconds timeout
+
+// Stage progress mapping
+const STAGE_PROGRESS: Record<ValidationStage, number> = {
+  submitted: 10,
+  pulling_image: 30,
+  starting_container: 50,
+  running_checks: 70,
+  completed: 100,
+}
 
 interface ShellEditProps {
   shell: UnifiedShell | null
@@ -35,11 +55,16 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
   const [displayName, setDisplayName] = useState(shell?.displayName || '')
   const [baseShellRef, setBaseShellRef] = useState(shell?.baseShellRef || '')
   const [baseImage, setBaseImage] = useState(shell?.baseImage || '')
+  const [originalBaseImage] = useState(shell?.baseImage || '') // Track original value for edit mode
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
+  const [validationId, setValidationId] = useState<string | null>(null)
+  const [pollingCount, setPollingCount] = useState(0)
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const [validationStatus, setValidationStatus] = useState<{
-    status: 'submitted' | 'skipped' | 'error' | 'success' | 'failed'
+    status: ValidationStage | 'error' | 'success' | 'failed'
     message: string
+    progress: number
     valid?: boolean
     checks?: ImageCheckResult[]
     errors?: string[]
@@ -48,6 +73,15 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
   // Available base shells (public local_engine shells)
   const [baseShells, setBaseShells] = useState<UnifiedShell[]>([])
   const [loadingBaseShells, setLoadingBaseShells] = useState(true)
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const fetchBaseShells = async () => {
@@ -62,6 +96,96 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
     }
     fetchBaseShells()
   }, [])
+
+  // Start polling for validation status
+  const startPolling = useCallback(
+    (validationIdToCheck: string) => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+      }
+
+      setPollingCount(0)
+      let count = 0
+
+      pollingRef.current = setInterval(async () => {
+        count++
+        setPollingCount(count)
+
+        if (count >= MAX_POLLING_COUNT) {
+          // Timeout
+          clearInterval(pollingRef.current!)
+          pollingRef.current = null
+          setValidating(false)
+          setValidationStatus({
+            status: 'error',
+            message: t('shells.validation_timeout'),
+            progress: 0,
+            valid: false,
+            errors: [t('shells.validation_timeout')],
+          })
+          toast({
+            variant: 'destructive',
+            title: t('shells.validation_failed'),
+            description: t('shells.validation_timeout'),
+          })
+          return
+        }
+
+        try {
+          const result: ValidationStatusResponse =
+            await shellApis.getValidationStatus(validationIdToCheck)
+
+          // Update validation status display
+          setValidationStatus({
+            status: result.status,
+            message: result.stage,
+            progress: result.progress,
+            valid: result.valid ?? undefined,
+            checks: result.checks ?? undefined,
+            errors: result.errors ?? undefined,
+          })
+
+          // Check if validation is completed
+          if (result.status === 'completed') {
+            clearInterval(pollingRef.current!)
+            pollingRef.current = null
+            setValidating(false)
+
+            if (result.valid === true) {
+              setValidationStatus({
+                status: 'success',
+                message: t('shells.validation_passed'),
+                progress: 100,
+                valid: true,
+                checks: result.checks ?? undefined,
+              })
+              toast({
+                title: t('shells.validation_success'),
+              })
+            } else {
+              setValidationStatus({
+                status: 'failed',
+                message: result.errorMessage || t('shells.validation_not_passed'),
+                progress: 100,
+                valid: false,
+                checks: result.checks ?? undefined,
+                errors: result.errors ?? undefined,
+              })
+              toast({
+                variant: 'destructive',
+                title: t('shells.validation_failed'),
+                description: result.errorMessage || t('shells.validation_not_passed'),
+              })
+            }
+          }
+        } catch (error) {
+          console.error('Failed to poll validation status:', error)
+          // Don't stop polling on transient errors, just log it
+        }
+      }, POLLING_INTERVAL)
+    },
+    [t, toast]
+  )
 
   const handleValidateImage = async () => {
     if (!baseImage || !baseShellRef) {
@@ -83,7 +207,11 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
     }
 
     setValidating(true)
-    setValidationStatus(null)
+    setValidationStatus({
+      status: 'submitted',
+      message: t('shells.validation_stage_submitted'),
+      progress: STAGE_PROGRESS.submitted,
+    })
 
     try {
       const result = await shellApis.validateImage({
@@ -95,9 +223,11 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
       // Handle different response statuses
       if (result.status === 'skipped') {
         // Dify type - validation not needed
+        setValidating(false)
         setValidationStatus({
           status: 'success',
           message: result.message,
+          progress: 100,
           valid: true,
           checks: [],
           errors: [],
@@ -106,22 +236,21 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
           title: t('shells.validation_skipped'),
           description: result.message,
         })
-      } else if (result.status === 'submitted') {
-        // Async validation task submitted
-        setValidationStatus({
-          status: 'submitted',
-          message: result.message,
-          valid: undefined,
-        })
+      } else if (result.status === 'submitted' && result.validationId) {
+        // Async validation task submitted - start polling
+        setValidationId(result.validationId)
+        startPolling(result.validationId)
         toast({
           title: t('shells.validation_submitted'),
           description: t('shells.validation_async_hint'),
         })
       } else if (result.status === 'error') {
         // Error submitting validation
+        setValidating(false)
         setValidationStatus({
           status: 'error',
           message: result.message,
+          progress: 0,
           valid: false,
           errors: result.errors || [],
         })
@@ -132,9 +261,11 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
         })
       }
     } catch (error) {
+      setValidating(false)
       setValidationStatus({
         status: 'error',
         message: (error as Error).message,
+        progress: 0,
         valid: false,
         errors: [(error as Error).message],
       })
@@ -143,10 +274,30 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
         title: t('shells.validation_failed'),
         description: (error as Error).message,
       })
-    } finally {
-      setValidating(false)
     }
   }
+
+  // Check if save button should be disabled
+  const isSaveDisabled = useCallback(() => {
+    // If there's no baseImage, no validation needed
+    if (!baseImage) return false
+
+    // In edit mode, if baseImage hasn't changed, no re-validation needed
+    if (isEditing && baseImage === originalBaseImage) return false
+
+    // If there's a baseImage, validation must pass
+    if (!validationStatus) return true
+    if (validationStatus.status !== 'success' || validationStatus.valid !== true) return true
+
+    return false
+  }, [baseImage, isEditing, originalBaseImage, validationStatus])
+
+  const getSaveButtonTooltip = useCallback(() => {
+    if (isSaveDisabled()) {
+      return t('shells.validation_required')
+    }
+    return undefined
+  }, [isSaveDisabled, t])
 
   const handleSave = async () => {
     // Validation
@@ -221,6 +372,10 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
   }
 
   const handleBack = useCallback(() => {
+    // Clean up polling when going back
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current)
+    }
     onClose()
   }, [onClose])
 
@@ -233,6 +388,28 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
     window.addEventListener('keydown', handleEsc)
     return () => window.removeEventListener('keydown', handleEsc)
   }, [handleBack])
+
+  // Get stage display text
+  const getStageDisplayText = (status: ValidationStage | 'error' | 'success' | 'failed') => {
+    switch (status) {
+      case 'submitted':
+        return t('shells.validation_stage_submitted')
+      case 'pulling_image':
+        return t('shells.validation_stage_pulling')
+      case 'starting_container':
+        return t('shells.validation_stage_starting')
+      case 'running_checks':
+        return t('shells.validation_stage_checking')
+      case 'completed':
+      case 'success':
+        return t('shells.validation_passed')
+      case 'failed':
+      case 'error':
+        return t('shells.validation_not_passed')
+      default:
+        return status
+    }
+  }
 
   return (
     <div className="flex flex-col w-full bg-surface rounded-lg px-2 py-4 min-h-[500px]">
@@ -256,7 +433,11 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
           {t('common.back')}
         </button>
         <div className="flex gap-2">
-          <Button onClick={handleSave} disabled={saving}>
+          <Button
+            onClick={handleSave}
+            disabled={saving || validating || isSaveDisabled()}
+            title={getSaveButtonTooltip()}
+          >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {saving ? t('actions.saving') : t('actions.save')}
           </Button>
@@ -336,7 +517,13 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
               value={baseImage}
               onChange={e => {
                 setBaseImage(e.target.value)
-                setValidationStatus(null) // Clear validation status on change
+                // Reset validation status on change
+                setValidationStatus(null)
+                setValidationId(null)
+                if (pollingRef.current) {
+                  clearInterval(pollingRef.current)
+                  pollingRef.current = null
+                }
               }}
               placeholder="ghcr.io/your-org/your-image:latest"
               className="bg-base flex-1"
@@ -362,7 +549,10 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
               className={`mt-3 p-3 rounded-md border ${
                 validationStatus.status === 'success' || validationStatus.valid === true
                   ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
-                  : validationStatus.status === 'submitted'
+                  : validationStatus.status === 'submitted' ||
+                      validationStatus.status === 'pulling_image' ||
+                      validationStatus.status === 'starting_container' ||
+                      validationStatus.status === 'running_checks'
                     ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800'
                     : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
               }`}
@@ -370,7 +560,10 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
               <div className="flex items-center gap-2 mb-2">
                 {validationStatus.status === 'success' || validationStatus.valid === true ? (
                   <CheckCircleIcon className="w-5 h-5 text-green-600 dark:text-green-400" />
-                ) : validationStatus.status === 'submitted' ? (
+                ) : validationStatus.status === 'submitted' ||
+                  validationStatus.status === 'pulling_image' ||
+                  validationStatus.status === 'starting_container' ||
+                  validationStatus.status === 'running_checks' ? (
                   <Loader2 className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
                 ) : (
                   <XCircleIcon className="w-5 h-5 text-red-600 dark:text-red-400" />
@@ -379,19 +572,32 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
                   className={`font-medium ${
                     validationStatus.status === 'success' || validationStatus.valid === true
                       ? 'text-green-700 dark:text-green-300'
-                      : validationStatus.status === 'submitted'
+                      : validationStatus.status === 'submitted' ||
+                          validationStatus.status === 'pulling_image' ||
+                          validationStatus.status === 'starting_container' ||
+                          validationStatus.status === 'running_checks'
                         ? 'text-blue-700 dark:text-blue-300'
                         : 'text-red-700 dark:text-red-300'
                   }`}
                 >
-                  {validationStatus.status === 'success'
-                    ? t('shells.validation_passed')
-                    : validationStatus.status === 'submitted'
-                      ? t('shells.validation_in_progress')
-                      : t('shells.validation_not_passed')}
+                  {getStageDisplayText(validationStatus.status)}
                 </span>
               </div>
-              <p className="text-sm text-text-secondary">{validationStatus.message}</p>
+
+              {/* Progress bar for in-progress validation */}
+              {validating && validationStatus.progress > 0 && (
+                <div className="mb-2">
+                  <Progress value={validationStatus.progress} className="h-2" />
+                  <p className="text-xs text-text-muted mt-1">
+                    {validationStatus.message} ({validationStatus.progress}%)
+                  </p>
+                </div>
+              )}
+
+              {!validating && (
+                <p className="text-sm text-text-secondary">{validationStatus.message}</p>
+              )}
+
               {validationStatus.checks && validationStatus.checks.length > 0 && (
                 <ul className="mt-2 space-y-1 text-sm">
                   {validationStatus.checks.map((check, index) => (
@@ -418,6 +624,13 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
                 </ul>
               )}
             </div>
+          )}
+
+          {/* Validation required hint when save is disabled */}
+          {isSaveDisabled() && !validating && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+              {t('shells.validation_required')}
+            </p>
           )}
         </div>
       </div>

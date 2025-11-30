@@ -85,6 +85,11 @@ async def callback_handler(request: CallbackRequest, http_request: Request):
     try:
         client_ip = http_request.client.host if http_request.client else "unknown"
         logger.info(f"Received callback: body={request} from {client_ip}")
+
+        # Check if this is a validation task callback (has validation_id in result)
+        if request.result and request.result.get("validation_id"):
+            await _forward_validation_callback(request)
+
         # Directly call the API client to update task status
         success, result = api_client.update_task_status_by_fields(
             task_id=request.task_id,
@@ -107,6 +112,53 @@ async def callback_handler(request: CallbackRequest, http_request: Request):
     except Exception as e:
         logger.error(f"Error processing callback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _forward_validation_callback(request: CallbackRequest):
+    """Forward validation task callback to Backend for Redis status update"""
+    import httpx
+
+    validation_id = request.result.get("validation_id")
+    if not validation_id:
+        return
+
+    # Map callback status to validation status
+    status_mapping = {
+        "running": "running_checks",
+        "completed": "completed",
+        "failed": "completed",
+    }
+    validation_status = status_mapping.get(request.status, request.status)
+
+    # Extract validation result from callback
+    validation_result = request.result.get("validation_result", {})
+    stage = request.result.get("stage", "Running checks")
+    progress = request.progress
+
+    # Build update payload
+    update_payload = {
+        "status": validation_status,
+        "stage": stage,
+        "progress": progress,
+        "valid": validation_result.get("valid"),
+        "checks": validation_result.get("checks"),
+        "errors": validation_result.get("errors"),
+        "errorMessage": request.error_message,
+    }
+
+    # Get backend URL
+    task_api_domain = os.getenv("TASK_API_DOMAIN", "http://localhost:8000")
+    update_url = f"{task_api_domain}/api/shells/validation-status/{validation_id}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(update_url, json=update_payload)
+            if response.status_code == 200:
+                logger.info(f"Successfully forwarded validation callback: {validation_id} -> {validation_status}")
+            else:
+                logger.warning(f"Failed to forward validation callback: {response.status_code} {response.text}")
+    except Exception as e:
+        logger.error(f"Error forwarding validation callback: {e}")
 
 
 @app.post("/executor-manager/tasks/receive")
@@ -177,6 +229,7 @@ class ValidateImageRequest(BaseModel):
     image: str
     shell_type: str  # e.g., "ClaudeCode", "Agno"
     shell_name: Optional[str] = None  # Optional shell name for tracking
+    validation_id: Optional[str] = None  # UUID for tracking validation status
 
 
 class ImageCheckResult(BaseModel):
@@ -212,10 +265,11 @@ async def validate_image(request: ValidateImageRequest, http_request: Request):
     3. Report results back via callback with validation_result in result field
     """
     client_ip = http_request.client.host if http_request.client else "unknown"
-    logger.info(f"Received image validation request: image={request.image}, shell_type={request.shell_type} from {client_ip}")
+    logger.info(f"Received image validation request: image={request.image}, shell_type={request.shell_type}, validation_id={request.validation_id} from {client_ip}")
 
     shell_type = request.shell_type
     image = request.image
+    validation_id = request.validation_id
 
     # Dify doesn't need validation (external_api type)
     if shell_type == "Dify":
@@ -256,6 +310,7 @@ async def validate_image(request: ValidateImageRequest, http_request: Request):
             "shell_type": shell_type,
             "image": image,
             "shell_name": request.shell_name or "",
+            "validation_id": validation_id,  # Pass validation_id for callback forwarding
         },
         "executor_image": os.getenv("EXECUTOR_IMAGE", ""),
     }
@@ -264,7 +319,7 @@ async def validate_image(request: ValidateImageRequest, http_request: Request):
         # Submit validation task using the task processor
         task_processor.process_tasks([validation_task])
 
-        logger.info(f"Validation task submitted: task_id={validation_task_id}, image={image}")
+        logger.info(f"Validation task submitted: task_id={validation_task_id}, validation_id={validation_id}, image={image}")
 
         return {
             "status": "submitted",

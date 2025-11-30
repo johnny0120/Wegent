@@ -51,11 +51,31 @@ export interface ImageCheckResult {
 export interface ImageValidationResponse {
   status: 'submitted' | 'skipped' | 'error'
   message: string
-  validationTaskId?: number | null
+  validationId?: string | null // UUID for polling validation status
+  validationTaskId?: number | null // Legacy field
   // For immediate results (e.g., Dify skip)
   valid?: boolean | null
   checks?: ImageCheckResult[] | null
   errors?: string[] | null
+}
+
+// Validation Status Types
+export type ValidationStage =
+  | 'submitted'
+  | 'pulling_image'
+  | 'starting_container'
+  | 'running_checks'
+  | 'completed'
+
+export interface ValidationStatusResponse {
+  validationId: string
+  status: ValidationStage
+  stage: string // Human-readable stage description
+  progress: number // 0-100
+  valid?: boolean | null
+  checks?: ImageCheckResult[] | null
+  errors?: string[] | null
+  errorMessage?: string | null
 }
 
 // Shell Services
@@ -112,6 +132,15 @@ export const shellApis = {
    */
   async validateImage(request: ImageValidationRequest): Promise<ImageValidationResponse> {
     return apiClient.post('/shells/validate-image', request)
+  },
+
+  /**
+   * Get validation status by validation ID (for polling)
+   *
+   * @param validationId - UUID of the validation task
+   */
+  async getValidationStatus(validationId: string): Promise<ValidationStatusResponse> {
+    return apiClient.get(`/shells/validation-status/${encodeURIComponent(validationId)}`)
   },
 
   /**

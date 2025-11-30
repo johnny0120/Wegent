@@ -80,6 +80,7 @@ class ImageValidatorAgent(Agent):
         self.shell_type = validation_params.get("shell_type", "")
         self.image = validation_params.get("image", "")
         self.shell_name = validation_params.get("shell_name", "")
+        self.validation_id = validation_params.get("validation_id", "")
 
     def get_name(self) -> str:
         return "ImageValidator"
@@ -94,7 +95,7 @@ class ImageValidatorAgent(Agent):
             logger.error(f"Unknown shell type: {self.shell_type}")
             return TaskStatus.FAILED
 
-        logger.info(f"ImageValidator initialized for shell_type={self.shell_type}")
+        logger.info(f"ImageValidator initialized for shell_type={self.shell_type}, validation_id={self.validation_id}")
         return TaskStatus.SUCCESS
 
     def execute(self) -> TaskStatus:
@@ -104,8 +105,34 @@ class ImageValidatorAgent(Agent):
         checks = self.VALIDATION_CHECKS.get(self.shell_type, [])
         results = []
         all_passed = True
+        total_checks = len(checks)
 
-        for check in checks:
+        # Report running_checks stage
+        self.report_progress(
+            progress=70,
+            status=TaskStatus.RUNNING.value,
+            message="Running dependency checks",
+            result={
+                "stage": "running_checks",
+                "validation_id": self.validation_id,
+                "current_check": None,
+            },
+        )
+
+        for index, check in enumerate(checks):
+            # Report current check progress
+            current_progress = 70 + int((index / total_checks) * 25)
+            self.report_progress(
+                progress=current_progress,
+                status=TaskStatus.RUNNING.value,
+                message=f"Checking {check['name']}",
+                result={
+                    "stage": "running_checks",
+                    "validation_id": self.validation_id,
+                    "current_check": check["name"],
+                },
+            )
+
             check_result = self._run_check(check)
             results.append(check_result)
             if check_result["status"] == "fail":
@@ -123,12 +150,16 @@ class ImageValidatorAgent(Agent):
 
         logger.info(f"Validation completed: valid={all_passed}, checks={len(results)}")
 
-        # Send result via callback with result data
+        # Send result via callback with result data including validation_id
         self.report_progress(
             progress=100,
             status=TaskStatus.COMPLETED.value,
             message="Image validation completed",
-            result=validation_result,
+            result={
+                "stage": "completed",
+                "validation_id": self.validation_id,
+                "validation_result": validation_result,
+            },
         )
 
         return TaskStatus.COMPLETED

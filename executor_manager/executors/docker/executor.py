@@ -16,6 +16,7 @@ import os
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 import requests
+import httpx
 
 from executor_manager.config.config import EXECUTOR_ENV
 from executor_manager.utils.executor_name import generate_executor_name
@@ -188,11 +189,39 @@ class DockerExecutor(Executor):
 
         # Execute Docker command
         logger.info(f"Starting Docker container for task {task_id}: {executor_name} (base_image={base_image or 'default'})")
-        result = self.subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-        # Record container ID
-        container_id = result.stdout.strip()
-        logger.info(f"Started Docker container {executor_name} with ID {container_id}")
+        try:
+            result = self.subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+            # Record container ID
+            container_id = result.stdout.strip()
+            logger.info(f"Started Docker container {executor_name} with ID {container_id}")
+
+            # For validation tasks, report starting_container stage
+            if task.get("type") == "validation":
+                self._report_validation_stage(
+                    task,
+                    stage="starting_container",
+                    status="running",
+                    progress=50,
+                    message="Container started, running validation checks",
+                )
+
+        except subprocess.CalledProcessError as e:
+            # For validation tasks, report image pull or container start failure
+            if task.get("type") == "validation":
+                error_msg = e.stderr or str(e)
+                stage = "pulling_image" if "pull" in error_msg.lower() or "not found" in error_msg.lower() else "starting_container"
+                self._report_validation_stage(
+                    task,
+                    stage=stage,
+                    status="failed",
+                    progress=100,
+                    message=f"Container start failed: {error_msg}",
+                    error_message=error_msg,
+                    valid=False,
+                )
+            raise
 
     def _get_base_image_from_task(self, task: Dict[str, Any]) -> Optional[str]:
         """Extract custom base_image from task's bot configuration"""
@@ -532,7 +561,7 @@ class DockerExecutor(Executor):
         """
         if not callback:
             return
-            
+
         try:
             callback(
                 task_id=task_id,
@@ -543,3 +572,53 @@ class DockerExecutor(Executor):
             )
         except Exception as e:
             logger.error(f"Error in callback for task {task_id}: {e}")
+
+    def _report_validation_stage(
+        self,
+        task: Dict[str, Any],
+        stage: str,
+        status: str,
+        progress: int,
+        message: str,
+        error_message: Optional[str] = None,
+        valid: Optional[bool] = None,
+    ) -> None:
+        """
+        Report validation stage progress to Backend via HTTP call.
+
+        Args:
+            task: Task data containing validation_params
+            stage: Current validation stage (pulling_image, starting_container, etc.)
+            status: Status (running, failed, completed)
+            progress: Progress percentage (0-100)
+            message: Human-readable message
+            error_message: Optional error message
+            valid: Optional validation result (True/False/None)
+        """
+        validation_params = task.get("validation_params", {})
+        validation_id = validation_params.get("validation_id")
+
+        if not validation_id:
+            logger.debug("No validation_id in task, skipping stage report")
+            return
+
+        task_api_domain = os.getenv("TASK_API_DOMAIN", "http://localhost:8000")
+        update_url = f"{task_api_domain}/api/shells/validation-status/{validation_id}"
+
+        update_payload = {
+            "status": "completed" if status == "failed" else stage,
+            "stage": message,
+            "progress": progress,
+            "valid": valid,
+            "errorMessage": error_message,
+        }
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.post(update_url, json=update_payload)
+                if response.status_code == 200:
+                    logger.info(f"Reported validation stage: {validation_id} -> {stage} ({progress}%)")
+                else:
+                    logger.warning(f"Failed to report validation stage: {response.status_code} {response.text}")
+        except Exception as e:
+            logger.error(f"Error reporting validation stage: {e}")
