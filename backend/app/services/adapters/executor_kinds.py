@@ -824,7 +824,7 @@ class ExecutorKindsService(
         # Check for [TASK_COMPLETED] marker - worker completed, need leader analysis
         if "[TASK_COMPLETED]" in result_text:
             # Only create leader subtask if current subtask is not from leader
-            is_leader = subtask.metadata and subtask.metadata.get("is_leader", False)
+            is_leader = subtask.subtask_metadata and subtask.subtask_metadata.get("is_leader", False)
             if not is_leader:
                 logger.info(f"Worker completed, creating leader subtask for analysis")
                 self._create_leader_analysis_subtask(db, subtask, team, team_crd)
@@ -918,7 +918,7 @@ class ExecutorKindsService(
             error_message="",
             completed_at=None,
             result=None,
-            metadata={
+            subtask_metadata={
                 "is_leader": False,
                 "dispatched_by": leader_subtask.id,
                 "target_role": target_bot_name,
@@ -974,8 +974,8 @@ class ExecutorKindsService(
             .all()
         )
         for s in previous_leader_subtasks:
-            if s.metadata and s.metadata.get("is_leader"):
-                prev_count = s.metadata.get("iteration_count", 0)
+            if s.subtask_metadata and s.subtask_metadata.get("is_leader"):
+                prev_count = s.subtask_metadata.get("iteration_count", 0)
                 if prev_count > iteration_count:
                     iteration_count = prev_count
         iteration_count += 1
@@ -1025,7 +1025,7 @@ class ExecutorKindsService(
             error_message="",
             completed_at=None,
             result=None,
-            metadata={
+            subtask_metadata={
                 "is_leader": True,
                 "iteration_count": iteration_count,
                 "max_iterations": max_iterations,

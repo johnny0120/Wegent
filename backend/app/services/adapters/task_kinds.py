@@ -1227,9 +1227,9 @@ class TaskKindsService(BaseService[Kind, TaskCreate, TaskUpdate]):
                 error_message="",
                 completed_at=None,
                 result=None,
-                metadata={
+                subtask_metadata={
                     "continues_from": waiting_subtask.id,
-                    "is_leader": waiting_subtask.metadata.get("is_leader", False) if waiting_subtask.metadata else False,
+                    "is_leader": waiting_subtask.subtask_metadata.get("is_leader", False) if waiting_subtask.subtask_metadata else False,
                 },
             )
             db.add(continue_subtask)
@@ -1310,8 +1310,8 @@ class TaskKindsService(BaseService[Kind, TaskCreate, TaskUpdate]):
             iteration_count = 0
             if existing_subtasks:
                 for s in existing_subtasks:
-                    if s.metadata and s.metadata.get("is_leader"):
-                        prev_count = s.metadata.get("iteration_count", 0)
+                    if s.subtask_metadata and s.subtask_metadata.get("is_leader"):
+                        prev_count = s.subtask_metadata.get("iteration_count", 0)
                         if prev_count > iteration_count:
                             iteration_count = prev_count
                 iteration_count += 1
@@ -1343,7 +1343,7 @@ class TaskKindsService(BaseService[Kind, TaskCreate, TaskUpdate]):
                 error_message="",
                 completed_at=None,
                 result=None,
-                metadata={
+                subtask_metadata={
                     "is_leader": True,
                     "iteration_count": iteration_count,
                     "max_iterations": 10,

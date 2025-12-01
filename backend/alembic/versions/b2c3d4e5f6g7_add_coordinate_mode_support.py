@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Add WAITING_INPUT status and metadata column for coordinate mode support."""
+    """Add WAITING_INPUT status and subtask_metadata column for coordinate mode support."""
 
     # Add WAITING_INPUT to subtask status enum
     # MySQL requires recreating the enum type
@@ -32,15 +32,15 @@ def upgrade() -> None:
     NOT NULL DEFAULT 'PENDING'
     """)
 
-    # Add metadata column for coordinate mode metadata
+    # Add subtask_metadata column for coordinate mode metadata
     op.execute("""
     ALTER TABLE subtasks
-    ADD COLUMN IF NOT EXISTS metadata JSON NULL
+    ADD COLUMN IF NOT EXISTS subtask_metadata JSON NULL
     """)
 
 
 def downgrade() -> None:
-    """Remove WAITING_INPUT status and metadata column."""
+    """Remove WAITING_INPUT status and subtask_metadata column."""
 
     # First update any WAITING_INPUT status to PENDING before removing from enum
     op.execute("""
@@ -54,8 +54,8 @@ def downgrade() -> None:
     NOT NULL DEFAULT 'PENDING'
     """)
 
-    # Drop metadata column
+    # Drop subtask_metadata column
     op.execute("""
     ALTER TABLE subtasks
-    DROP COLUMN IF EXISTS metadata
+    DROP COLUMN IF EXISTS subtask_metadata
     """)

@@ -51,7 +51,7 @@ class Subtask(Base):
     progress = Column(Integer, nullable=False, default=0)
     result = Column(JSON)
     error_message = Column(Text)
-    metadata = Column(JSON, nullable=True)  # Coordinate mode metadata (is_leader, iteration_count, etc.)
+    subtask_metadata = Column(JSON, nullable=True)  # Coordinate mode metadata (is_leader, iteration_count, etc.)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     completed_at = Column(DateTime)
