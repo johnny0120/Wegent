@@ -33,10 +33,19 @@ def upgrade() -> None:
     """)
 
     # Add subtask_metadata column for coordinate mode metadata
-    op.execute("""
-    ALTER TABLE subtasks
-    ADD COLUMN IF NOT EXISTS subtask_metadata JSON NULL
-    """)
+    # Use standard ALTER TABLE ADD COLUMN syntax (MySQL doesn't support IF NOT EXISTS)
+    from sqlalchemy import inspect
+    from alembic import op as alembic_op
+
+    bind = alembic_op.get_bind()
+    inspector = inspect(bind)
+    columns = [col['name'] for col in inspector.get_columns('subtasks')]
+
+    if 'subtask_metadata' not in columns:
+        op.execute("""
+        ALTER TABLE subtasks
+        ADD COLUMN subtask_metadata JSON NULL
+        """)
 
 
 def downgrade() -> None:
@@ -57,5 +66,5 @@ def downgrade() -> None:
     # Drop subtask_metadata column
     op.execute("""
     ALTER TABLE subtasks
-    DROP COLUMN IF EXISTS subtask_metadata
+    DROP COLUMN subtask_metadata
     """)
