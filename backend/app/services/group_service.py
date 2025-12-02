@@ -102,7 +102,8 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
     """Group service with hierarchical permission management"""
 
     def __init__(self, db: Session):
-        super().__init__(Group, db)
+        super().__init__(Group)
+        self.db = db
 
     def get_user_role_in_group(
         self, group_id: int, user_id: int, check_parents: bool = True
