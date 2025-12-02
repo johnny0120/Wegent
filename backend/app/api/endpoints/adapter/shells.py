@@ -16,7 +16,6 @@ from app.api.dependencies import get_db
 from app.core import security
 from app.core.cache import cache_manager
 from app.models.kind import Kind
-from app.models.public_shell import PublicShell
 from app.models.user import User
 from app.schemas.kind import Shell as ShellCRD
 
@@ -173,11 +172,15 @@ def list_unified_shells(
     """
     result = []
 
-    # Get public shells
+    # Get public shells from kinds table (user_id=0)
     public_shells = (
-        db.query(PublicShell)
-        .filter(PublicShell.is_active == True)  # noqa: E712
-        .order_by(PublicShell.name.asc())
+        db.query(Kind)
+        .filter(
+            Kind.user_id == 0,
+            Kind.kind == "Shell",
+            Kind.is_active == True,  # noqa: E712
+        )
+        .order_by(Kind.name.asc())
         .all()
     )
     for shell in public_shells:
@@ -242,12 +245,14 @@ def get_unified_shell(
         if shell_type == "user":
             raise HTTPException(status_code=404, detail="User shell not found")
 
-    # Try public shells
+    # Try public shells from kinds table (user_id=0)
     public_shell = (
-        db.query(PublicShell)
+        db.query(Kind)
         .filter(
-            PublicShell.name == shell_name,
-            PublicShell.is_active == True,  # noqa: E712
+            Kind.user_id == 0,
+            Kind.kind == "Shell",
+            Kind.name == shell_name,
+            Kind.is_active == True,  # noqa: E712
         )
         .first()
     )
@@ -291,12 +296,14 @@ def create_shell(
     if existing:
         raise HTTPException(status_code=400, detail="Shell name already exists")
 
-    # Validate baseShellRef - must be a public shell with local_engine type
+    # Validate baseShellRef - must be a public shell with local_engine type from kinds table
     base_shell = (
-        db.query(PublicShell)
+        db.query(Kind)
         .filter(
-            PublicShell.name == request.baseShellRef,
-            PublicShell.is_active == True,  # noqa: E712
+            Kind.user_id == 0,
+            Kind.kind == "Shell",
+            Kind.name == request.baseShellRef,
+            Kind.is_active == True,  # noqa: E712
         )
         .first()
     )

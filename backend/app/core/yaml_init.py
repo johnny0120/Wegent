@@ -16,7 +16,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.public_shell import PublicShell
+from app.models.kind import Kind
 from app.models.user import User
 from app.services.k_batch import batch_service
 
@@ -220,10 +220,15 @@ def apply_public_shells(
                 )
                 continue
 
-            # Check if public shell already exists
+            # Check if public shell already exists in kinds table (user_id=0)
             existing = (
-                db.query(PublicShell)
-                .filter(PublicShell.name == name, PublicShell.namespace == namespace)
+                db.query(Kind)
+                .filter(
+                    Kind.user_id == 0,
+                    Kind.kind == "Shell",
+                    Kind.name == name,
+                    Kind.namespace == namespace,
+                )
                 .first()
             )
 
@@ -244,9 +249,14 @@ def apply_public_shells(
                 )
                 skipped_count += 1
             else:
-                # Create new public shell
-                new_shell = PublicShell(
-                    name=name, namespace=namespace, json=resource, is_active=True
+                # Create new public shell in kinds table
+                new_shell = Kind(
+                    user_id=0,  # Public shells use user_id=0
+                    kind="Shell",
+                    name=name,
+                    namespace=namespace,
+                    json=resource,
+                    is_active=True,
                 )
                 db.add(new_shell)
                 db.commit()
