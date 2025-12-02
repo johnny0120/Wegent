@@ -114,8 +114,8 @@ class ValidationStatusUpdateRequest(BaseModel):
     errorMessage: Optional[str] = None
 
 
-def _public_shell_to_unified(shell: PublicShell) -> UnifiedShell:
-    """Convert PublicShell to UnifiedShell"""
+def _public_shell_to_unified(shell: Kind) -> UnifiedShell:
+    """Convert Kind (public shell) to UnifiedShell"""
     shell_crd = ShellCRD.model_validate(shell.json)
     labels = shell_crd.metadata.labels or {}
     return UnifiedShell(
