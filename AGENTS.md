@@ -591,12 +591,15 @@ alembic upgrade head --sql
 
 ### Model Types
 
-Wegent supports two types of AI models:
+Wegent supports three types of AI models:
 
 | Type | Description | Storage |
 |------|-------------|---------|
-| **Public** | System-provided models, shared across all users | `public_models` table |
-| **User** | User-defined private models | `kinds` table (kind='Model') |
+| **Public** | System-provided models, shared across all users | `kinds` table (user_id=0, kind='Model') |
+| **User** | User-defined private models | `kinds` table (user_id=current_user, group_id=NULL) |
+| **Group** | Group-shared models | `kinds` table (group_id=group_id, kind='Model') |
+
+**Note:** Public models migrated from `public_models` table to `kinds` table with `user_id=0` marker.
 
 ### Model Resolution Order
 
@@ -630,6 +633,101 @@ spec:
     bind_model: "my-model"
     bind_model_type: "user"  # Optional: 'public' or 'user'
 ```
+
+---
+
+## 🔧 Group Management
+
+### Overview
+
+Groups enable organization-level collaboration and resource sharing, similar to GitLab groups.
+
+**Key Features:**
+- Hierarchical group structure with parent-child relationships
+- Role-based access control (Owner, Maintainer, Developer, Reporter)
+- Resource sharing (Models, Bots, Teams) within groups
+- Permission inheritance from parent groups
+- Automatic resource ownership transfer when members leave
+
+### Group Roles & Permissions
+
+| Role | View | Create | Edit | Delete | Invite/Remove Members | Change Roles | Delete Group | Transfer Ownership |
+|------|------|--------|------|--------|----------------------|--------------|--------------|-------------------|
+| **Owner** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Maintainer** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (not Owner) | ✗ | ✗ |
+| **Developer** | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| **Reporter** | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+
+### Database Schema
+
+**Groups Table:**
+- `id`, `name`, `parent_id` (nullable), `owner_user_id`, `description`
+- `visibility` (reserved for future), `is_active`, timestamps
+
+**Group Members Table:**
+- `id`, `group_id`, `user_id`, `role` (Owner/Maintainer/Developer/Reporter)
+- `invited_by_user_id`, `is_active`, timestamps
+- UNIQUE constraint on (group_id, user_id)
+
+**Kinds Table Enhancement:**
+- Added `group_id` field (nullable) to associate resources with groups
+- Public resources use `user_id=0` (migrated from public_models/public_shells)
+
+### Key APIs
+
+**Group Management:**
+- `GET /api/groups` - List user's groups
+- `POST /api/groups` - Create group
+- `GET /api/groups/{id}` - Get group details
+- `PUT /api/groups/{id}` - Update group (Maintainer+)
+- `DELETE /api/groups/{id}` - Delete group (Owner only)
+
+**Member Management:**
+- `GET /api/groups/{id}/members` - List members
+- `POST /api/groups/{id}/members` - Invite member
+- `PUT /api/groups/{id}/members/{user_id}` - Update role
+- `DELETE /api/groups/{id}/members/{user_id}` - Remove member
+- `POST /api/groups/{id}/leave` - Leave group
+- `POST /api/groups/{id}/transfer-ownership` - Transfer ownership
+- `POST /api/groups/{id}/members/invite-all` - Invite all users (Owner only)
+
+**Resource Queries:**
+- `GET /api/groups/{id}/models` - List group models
+- `GET /api/groups/{id}/bots` - List group bots
+- `GET /api/groups/{id}/teams` - List group teams
+
+### Frontend Integration
+
+**TypeScript Types:** `frontend/src/types/group.ts`
+**API Client:** `frontend/src/apis/groups.ts`
+
+**Usage Example:**
+```typescript
+import { groupsApi } from '@/apis/groups'
+import { GroupRole } from '@/types/group'
+
+// Create a group
+const group = await groupsApi.createGroup({
+  name: 'AI Team',
+  description: 'AI development team',
+  parent_id: null
+})
+
+// Invite a member
+await groupsApi.inviteMember(group.id, {
+  user_name: 'john',
+  role: GroupRole.DEVELOPER
+})
+```
+
+### Important Notes
+
+- **Resource Migration:** When a member leaves, their group resources are automatically transferred to the group Owner
+- **Owner Restrictions:** Group Owner cannot leave without transferring ownership first
+- **Permission Inheritance:** Parent group members automatically have access to child groups with inherited permissions
+- **Public Resources:** All resources from `public_models` and `public_shells` tables have been migrated to `kinds` table with `user_id=0`
+
+**See also:** `docs/en/guides/user/groups.md` for detailed user guide
 
 ---
 

@@ -33,9 +33,13 @@ class Kind(Base):
     name = Column(String(100), nullable=False)
     namespace = Column(String(100), nullable=False, default="default")
     json = Column(JSON, nullable=False)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=True, index=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # Relationships
+    group = relationship("Group", back_populates="kinds")
 
     __table_args__ = (
         {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"},
