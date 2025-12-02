@@ -19,7 +19,7 @@ import type {
   TransferOwnershipRequest,
 } from '../types/group'
 
-const GROUPS_BASE = '/api/groups'
+const GROUPS_BASE = '/groups'
 
 // Group Management APIs
 export const groupsApi = {
