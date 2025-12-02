@@ -14,8 +14,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.kind import Kind
-from app.models.public_model import PublicModel
-from app.models.public_shell import PublicShell
 from app.models.user import User
 from app.schemas.bot import BotCreate, BotDetail, BotInDB, BotUpdate
 from app.schemas.kind import Bot, Ghost, Model, Shell, Team
@@ -120,7 +118,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         model_type: Optional[str] = None,
     ) -> Optional[Any]:
         """
-        Get model by name and optional type from kinds table or public_models table.
+        Get model by name and optional type from kinds table (both user and public models).
 
         Args:
             db: Database session
@@ -131,7 +129,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                        If None, tries user models first, then public.
 
         Returns:
-            A Kind object (for user models) or PublicModel object (for public models),
+            A Kind object (for both user and public models),
             or None if not found.
         """
         import logging
@@ -160,13 +158,15 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             return None
 
         elif model_type == "public":
-            # Only look in public_models table
+            # Look in public models (user_id=0) in kinds table
             public_model = (
-                db.query(PublicModel)
+                db.query(Kind)
                 .filter(
-                    PublicModel.name == model_name,
-                    PublicModel.namespace == namespace,
-                    PublicModel.is_active.is_(True),
+                    Kind.user_id == 0,
+                    Kind.kind == "Model",
+                    Kind.name == model_name,
+                    Kind.namespace == namespace,
+                    Kind.is_active.is_(True),
                 )
                 .first()
             )
@@ -198,13 +198,15 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 )
                 return model
 
-            # Then try to find in public_models table
+            # Then try to find in public models (user_id=0) in kinds table
             public_model = (
-                db.query(PublicModel)
+                db.query(Kind)
                 .filter(
-                    PublicModel.name == model_name,
-                    PublicModel.namespace == namespace,
-                    PublicModel.is_active.is_(True),
+                    Kind.user_id == 0,
+                    Kind.kind == "Model",
+                    Kind.name == model_name,
+                    Kind.namespace == namespace,
+                    Kind.is_active.is_(True),
                 )
                 .first()
             )
@@ -224,8 +226,8 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         self, db: Session, model_name: str, namespace: str, user_id: int
     ) -> Optional[Any]:
         """
-        Get model by name from kinds table (user's private models) or public_models table.
-        Returns a Kind object or a PublicModel object for public models.
+        Get model by name from kinds table (both user's private and public models).
+        Returns a Kind object for both user and public models.
 
         This is a backward-compatible wrapper around _get_model_by_name_and_type.
         """
@@ -606,13 +608,13 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
 
                 # Only delete old model if it's a user's private custom model (not public or predefined)
                 # A private custom model must satisfy:
-                # 1. It's a Kind object (not PublicModel)
+                # 1. It's a Kind object with user_id matching the current user (not a public model with user_id=0)
                 # 2. It has the naming pattern "{bot.name}-model" (dedicated to this bot)
                 # 3. It has isCustomConfig=True in the model spec
                 if model and model.name != model_name:
-                    # Check if it's a Kind object (private model) vs PublicModel
-                    is_kind_model = isinstance(model, Kind)
-                    if is_kind_model:
+                    # Check if it's a Kind object (private model) and belongs to current user
+                    is_user_private_model = isinstance(model, Kind) and model.user_id == user_id
+                    if is_user_private_model:
                         # Check if it's a dedicated private custom model for this bot
                         dedicated_model_name = f"{bot.name}-model"
                         is_dedicated_model = model.name == dedicated_model_name
@@ -636,7 +638,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                             )
                     else:
                         logger.info(
-                            f"[DEBUG] Not deleting model {model.name}: it's a public model"
+                            f"[DEBUG] Not deleting model {model.name}: it's a public model or doesn't belong to user"
                         )
 
                 # Get the new model for response using type hint
@@ -702,7 +704,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                     # No existing dedicated private model, create a new one
                     # This happens when:
                     # 1. model is None (no model at all)
-                    # 2. model is a PublicModel (can't be modified)
+                    # 2. model is a public model (user_id=0, can't be modified)
                     # 3. model is a Kind but not dedicated to this bot (shared model)
                     logger.info("[DEBUG] Creating new private model for custom config")
 
@@ -867,7 +869,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
     def _get_bot_components(self, db: Session, bot: Kind, user_id: int):
         """
         Get Ghost, Shell, Model components for a bot.
-        Model can be from kinds table (private) or public_models table.
+        Model can be from kinds table (both private and public models).
         """
         import logging
 
@@ -923,12 +925,12 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
     def _get_bot_components_batch(self, db: Session, bots: List[Kind], user_id: int):
         """
         Batch-fetch Ghost/Shell/Model components for multiple bots to avoid N+1 queries.
-        Models can be from kinds table (private) or public_models table.
+        Models can be from kinds table (both private and public models).
         Returns:
           - bot_crds: {bot.id: Bot} mapping to avoid repeated parsing
           - ghost_map: {(name, namespace): Kind}
           - shell_map: {(name, namespace): Kind}
-          - model_map: {(name, namespace): Kind or PublicModel}
+          - model_map: {(name, namespace): Kind}
         """
         if not bots:
             return {}, {}, {}, {}
@@ -990,7 +992,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         # shell_map is already populated by get_shells_by_names_batch
         model_map = {(m.name, m.namespace): m for m in models}
 
-        # For models not found in kinds table, try to find in public_models table
+        # For models not found in user's private models, try to find in public models (user_id=0)
         missing_model_keys = model_keys - set(model_map.keys())
         if missing_model_keys:
 
@@ -998,7 +1000,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 return (
                     or_(
                         *[
-                            and_(PublicModel.name == n, PublicModel.namespace == ns)
+                            and_(Kind.user_id == 0, Kind.kind == "Model", Kind.name == n, Kind.namespace == ns)
                             for (n, ns) in keys
                         ]
                     )
@@ -1009,8 +1011,8 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             public_model_filter = build_public_model_or_filters(missing_model_keys)
             if public_model_filter is not None:
                 public_models = (
-                    db.query(PublicModel)
-                    .filter(PublicModel.is_active.is_(True))
+                    db.query(Kind)
+                    .filter(Kind.is_active.is_(True))
                     .filter(public_model_filter)
                     .all()
                 )
@@ -1035,7 +1037,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             bot: The Bot Kind object
             ghost: The Ghost Kind object (optional)
             shell: The Shell Kind object (optional)
-            model: The Model object - can be Kind (private) or PublicModel (public)
+            model: The Model object - Kind for both private and public models
             override_agent_config: If provided, use this instead of extracting from model.
                                    Used for predefined models where we want to return { bind_model: "xxx" }
         """
@@ -1066,7 +1068,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         # Determine agent_config
         # For frontend display, we need to return { bind_model: "xxx", bind_model_type: "public"|"user" } format when:
         # 1. override_agent_config is provided (explicit override)
-        # 2. The model is a public model (PublicModel instance)
+        # 2. The model is a public model (user_id=0)
         # 3. The model is a shared/predefined model (modelRef.name != "{bot.name}-model")
         # 4. The model's isCustomConfig is False/None
         # Only return full modelConfig when it's a bot's dedicated private model with isCustomConfig=True
@@ -1104,7 +1106,10 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 else False
             )
 
-            if isinstance(model, PublicModel):
+            # Check if model is public (user_id=0)
+            is_public_model = isinstance(model, Kind) and model.user_id == 0
+
+            if is_public_model:
                 # This is a public model, return bind_model format with type
                 agent_config = {
                     "bind_model": model.name,
