@@ -792,7 +792,6 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         """
         Convert kinds Team to team-like dictionary
         """
-        from app.models.public_model import PublicModel
 
         team_crd = Team.model_validate(team.json)
 
@@ -897,8 +896,6 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
 
         logger = logging.getLogger(__name__)
 
-        from app.models.public_model import PublicModel
-
         bot_crd = Bot.model_validate(bot.json)
 
         # modelRef is optional, handle None case
@@ -977,13 +974,15 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                         f"[_get_bot_summary] Predefined model (isCustomConfig=False), returning bind_model: {agent_config}"
                     )
             else:
-                # Try to find in public_models table
+                # Try to find in kinds table for public models (user_id=0)
                 public_model = (
-                    db.query(PublicModel)
+                    db.query(Kind)
                     .filter(
-                        PublicModel.name == model_ref_name,
-                        PublicModel.namespace == model_ref_namespace,
-                        PublicModel.is_active.is_(True),
+                        Kind.user_id == 0,
+                        Kind.kind == "Model",
+                        Kind.name == model_ref_name,
+                        Kind.namespace == model_ref_namespace,
+                        Kind.is_active.is_(True),
                     )
                     .first()
                 )

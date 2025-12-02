@@ -192,10 +192,17 @@ class ModelAggregationService:
         Returns:
             List of supported model providers
         """
-        from app.models.public_shell import PublicShell
+        from app.models.kind import Kind
 
         shell_row = (
-            db.query(PublicShell.json).filter(PublicShell.name == shell_type).first()
+            db.query(Kind.json)
+            .filter(
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.name == shell_type,
+                Kind.is_active == True,
+            )
+            .first()
         )
 
         if shell_row and isinstance(shell_row[0], dict):

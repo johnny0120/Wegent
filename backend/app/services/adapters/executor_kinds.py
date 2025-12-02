@@ -17,7 +17,6 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.models.kind import Kind
-from app.models.public_model import PublicModel
 from app.models.subtask import Subtask, SubtaskRole, SubtaskStatus
 from app.models.user import User
 from app.schemas.kind import Bot, Ghost, Model, Shell, Task, Team, Workspace
@@ -246,7 +245,7 @@ class ExecutorKindsService(
         self, db: Session, agent_config: Any
     ) -> Any:
         """
-        Get model configuration from PublicModel table by private_model name in agent_config
+        Get model configuration from kinds table (public models) by private_model name in agent_config
         """
         # Check if agent_config is a dictionary
         if not isinstance(agent_config, dict):
@@ -262,7 +261,14 @@ class ExecutorKindsService(
         try:
             model_name = private_model_name.strip()
             public_model = (
-                db.query(PublicModel).filter(PublicModel.name == model_name).first()
+                db.query(Kind)
+                .filter(
+                    Kind.user_id == 0,
+                    Kind.kind == "Model",
+                    Kind.name == model_name,
+                    Kind.is_active == True,
+                )
+                .first()
             )
 
             if public_model and public_model.json:
@@ -271,7 +277,7 @@ class ExecutorKindsService(
 
         except Exception as e:
             logger.warning(
-                f"Failed to load model '{private_model_name}' from public_models: {e}"
+                f"Failed to load model '{private_model_name}' from kinds table (public models): {e}"
             )
 
         return agent_config
@@ -443,16 +449,17 @@ class ExecutorKindsService(
                     .first()
                 )
 
-                # If user shell not found, try public shells
+                # If user shell not found, try public shells (user_id=0 in kinds table)
                 shell_base_image = None
                 if not shell:
-                    from app.models.public_shell import PublicShell
 
                     public_shell = (
-                        db.query(PublicShell)
+                        db.query(Kind)
                         .filter(
-                            PublicShell.name == bot_crd.spec.shellRef.name,
-                            PublicShell.is_active == True,
+                            Kind.user_id == 0,
+                            Kind.kind == "Shell",
+                            Kind.name == bot_crd.spec.shellRef.name,
+                            Kind.is_active == True,
                         )
                         .first()
                     )
@@ -468,7 +475,7 @@ class ExecutorKindsService(
                         shell = MockShell(public_shell.json)
 
                 # Get model for agent config (modelRef is optional)
-                # Try to find in kinds table (user's private models) first, then public_models table
+                # Try to find in kinds table (user's private models) first, then public models in kinds table (user_id=0)
                 model = None
                 if bot_crd.spec.modelRef:
                     model = (
@@ -483,23 +490,24 @@ class ExecutorKindsService(
                         .first()
                     )
 
-                    # If not found in kinds table, try public_models table
+                    # If not found in user's private models, try public models (user_id=0) in kinds table
                     if not model:
 
                         public_model = (
-                            db.query(PublicModel)
+                            db.query(Kind)
                             .filter(
-                                PublicModel.name == bot_crd.spec.modelRef.name,
-                                PublicModel.namespace
-                                == bot_crd.spec.modelRef.namespace,
-                                PublicModel.is_active == True,
+                                Kind.user_id == 0,
+                                Kind.kind == "Model",
+                                Kind.name == bot_crd.spec.modelRef.name,
+                                Kind.namespace == bot_crd.spec.modelRef.namespace,
+                                Kind.is_active == True,
                             )
                             .first()
                         )
                         if public_model:
                             model = public_model
                             logger.info(
-                                f"Found model '{bot_crd.spec.modelRef.name}' in public_models table for bot {bot.name}"
+                                f"Found model '{bot_crd.spec.modelRef.name}' in kinds table (public models) for bot {bot.name}"
                             )
 
                 # Extract data from components
@@ -634,10 +642,15 @@ class ExecutorKindsService(
                                         f"Failed to parse model CRD {model_name_to_use}: {e}"
                                     )
                             else:
-                                # Fallback to public_models table (legacy)
+                                # Fallback to kinds table for public models (user_id=0, legacy)
                                 model_row = (
-                                    db.query(PublicModel)
-                                    .filter(PublicModel.name == model_name_to_use)
+                                    db.query(Kind)
+                                    .filter(
+                                        Kind.user_id == 0,
+                                        Kind.kind == "Model",
+                                        Kind.name == model_name_to_use,
+                                        Kind.is_active == True,
+                                    )
                                     .first()
                                 )
                                 if model_row and model_row.json:
@@ -657,11 +670,11 @@ class ExecutorKindsService(
                                             )
                                         agent_config_data = model_config
                                         logger.info(
-                                            f"Successfully loaded model config from public_models: {model_name_to_use}"
+                                            f"Successfully loaded model config from kinds table (public models): {model_name_to_use}"
                                         )
                                 else:
                                     logger.warning(
-                                        f"Model '{model_name_to_use}' not found in kinds or public_models table"
+                                        f"Model '{model_name_to_use}' not found in kinds table (user or public models)"
                                     )
 
                 except Exception as e:
