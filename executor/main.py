@@ -143,6 +143,14 @@ async def cancel_task(
         raise HTTPException(status_code=400, detail=message)
 
 
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint for container readiness probe
+    """
+    return {"status": "healthy"}
+
+
 @app.get("/api/tasks/sessions")
 async def list_sessions():
     """

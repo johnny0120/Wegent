@@ -20,6 +20,7 @@ from shared.logger import setup_logger
 from executor_manager.executors.docker.utils import (
     find_available_port,
     delete_container,
+    build_callback_url,
 )
 from executor_manager.executors.docker.constants import (
     CONTAINER_OWNER,
@@ -31,6 +32,50 @@ from executor_manager.executors.docker.constants import (
 from executor_manager.config.config import EXECUTOR_ENV
 
 logger = setup_logger(__name__)
+
+
+def convert_memory_format(memory: str) -> str:
+    """
+    Convert Kubernetes-style memory format to Docker format.
+    
+    Kubernetes uses: Ki, Mi, Gi, Ti (binary) or K, M, G, T (decimal)
+    Docker uses: b, k, m, g (case-insensitive)
+    
+    Examples:
+        4Gi -> 4g
+        512Mi -> 512m
+        1024Ki -> 1024k
+        2G -> 2g
+        
+    Args:
+        memory: Memory string in Kubernetes or Docker format
+        
+    Returns:
+        Memory string in Docker format
+    """
+    if not memory:
+        return memory
+    
+    memory = memory.strip()
+    
+    # Already in Docker format (ends with single letter b/k/m/g)
+    if memory[-1].lower() in ('b', 'k', 'm', 'g') and (len(memory) < 2 or memory[-2].isdigit()):
+        return memory
+    
+    # Kubernetes binary format: Ki, Mi, Gi, Ti
+    if memory.endswith('i') and len(memory) >= 3:
+        suffix = memory[-2:].lower()
+        value = memory[:-2]
+        suffix_map = {'ki': 'k', 'mi': 'm', 'gi': 'g', 'ti': 't'}
+        if suffix in suffix_map:
+            return f"{value}{suffix_map[suffix]}"
+    
+    # Kubernetes decimal format: K, M, G, T (single uppercase letter)
+    if memory[-1] in ('K', 'M', 'G', 'T'):
+        return memory.lower()
+    
+    # Return as-is if no conversion needed (e.g., pure number)
+    return memory
 
 
 class PersistentContainerManager:
@@ -74,6 +119,7 @@ class PersistentContainerManager:
                 "status": "running",
                 "container_id": container_name,
                 "access_url": f"http://localhost:{port}" if port else None,
+                "port": port,
                 "reused": True,
             }
 
@@ -171,7 +217,7 @@ class PersistentContainerManager:
             "--label", f"aigc.weibo.com/persistent=true",
             # Resource limits
             "--cpus", str(cpu_limit),
-            "--memory", memory_limit,
+            "--memory", convert_memory_format(memory_limit),
             # Environment
             "-e", f"TZ={DEFAULT_TIMEZONE}",
             "-e", f"LANG={DEFAULT_LOCALE}",
@@ -199,6 +245,11 @@ class PersistentContainerManager:
         task_api_domain = os.getenv("TASK_API_DOMAIN", "")
         if task_api_domain:
             cmd.extend(["-e", f"TASK_API_DOMAIN={task_api_domain}"])
+
+        # Add CALLBACK_URL for executor to report progress
+        callback_url = build_callback_url({})
+        if callback_url:
+            cmd.extend(["-e", f"CALLBACK_URL={callback_url}"])
 
         # If using custom base_image, mount executor binary
         if base_image and base_image != executor_image:
@@ -247,51 +298,43 @@ class PersistentContainerManager:
 
     def _setup_workspace(self, container_name: str, git_config: Dict[str, Any]) -> bool:
         """
-        Setup workspace in container: clone repo and create worktree directory.
+        Setup workspace in container: create workspace directories following the new structure.
+
+        The new workspace structure is:
+        /workspace/
+        ├── repos/      - Bare Git repositories
+        ├── features/   - Feature directories with worktrees
+        ├── tasks/      - Task temporary directories
+        └── shared/     - Shared resources
+
+        Note: The actual code cloning is handled by the executor's WorkspaceSetup
+        when the task is executed. This method only creates the directory structure.
 
         Args:
             container_name: Name of the container
-            git_config: Git configuration with repo_url, branch, etc.
+            git_config: Git configuration with repo_url, branch, git_token, etc.
 
         Returns:
             True if setup successful, False otherwise
         """
-        repo_url = git_config.get("repo_url")
-        if not repo_url:
-            return True
-
         try:
-            # Create workspace directories
+            # Create workspace directories following the new structure design
+            # These directories match executor/config/config.py definitions
             self.subprocess.run(
-                ["docker", "exec", container_name, "mkdir", "-p", "/workspace/repo", "/workspace/worktrees"],
+                [
+                    "docker", "exec", container_name,
+                    "mkdir", "-p",
+                    "/workspace/repos",      # Bare Git repositories
+                    "/workspace/features",   # Feature directories with worktrees
+                    "/workspace/tasks",      # Task temporary directories
+                    "/workspace/shared"      # Shared resources
+                ],
                 check=True,
                 capture_output=True,
                 timeout=30,
             )
 
-            # Clone repository
-            logger.info(f"Cloning repository {repo_url} into container {container_name}")
-            clone_result = self.subprocess.run(
-                ["docker", "exec", container_name, "git", "clone", repo_url, "/workspace/repo"],
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minutes for large repos
-            )
-
-            if clone_result.returncode != 0:
-                logger.warning(f"Failed to clone repository: {clone_result.stderr}")
-                return False
-
-            # Checkout specific branch if specified
-            branch = git_config.get("branch", "main")
-            if branch and branch != "main":
-                self.subprocess.run(
-                    ["docker", "exec", "-w", "/workspace/repo", container_name, "git", "checkout", branch],
-                    capture_output=True,
-                    timeout=60,
-                )
-
-            logger.info(f"Workspace setup completed for container {container_name}")
+            logger.info(f"Workspace directories created for container {container_name}")
             return True
 
         except subprocess.TimeoutExpired:
@@ -300,6 +343,45 @@ class PersistentContainerManager:
         except Exception as e:
             logger.error(f"Error setting up workspace: {e}")
             return False
+
+    def _build_authenticated_url(self, repo_url: str, git_config: Dict[str, Any]) -> str:
+        """
+        Build authenticated git URL with token if available.
+
+        Args:
+            repo_url: Original repository URL
+            git_config: Git configuration containing git_token and git_login
+
+        Returns:
+            Authenticated URL or original URL if no token
+        """
+        git_token = git_config.get("git_token")
+        if not git_token:
+            return repo_url
+
+        # Decrypt git_token if it's encrypted
+        try:
+            from shared.utils.crypto import decrypt_git_token, is_token_encrypted
+            if is_token_encrypted(git_token):
+                decrypted_token = decrypt_git_token(git_token)
+                if decrypted_token:
+                    git_token = decrypted_token
+                    logger.debug("Successfully decrypted git token")
+        except Exception as e:
+            logger.warning(f"Failed to decrypt git token: {e}, using as-is")
+
+        # Parse URL and inject credentials
+        # Supports: https://domain/path.git -> https://user:token@domain/path.git
+        if repo_url.startswith("https://"):
+            git_login = git_config.get("git_login", "oauth2")
+            # Insert credentials after https://
+            return repo_url.replace("https://", f"https://{git_login}:{git_token}@", 1)
+        elif repo_url.startswith("http://"):
+            git_login = git_config.get("git_login", "oauth2")
+            return repo_url.replace("http://", f"http://{git_login}:{git_token}@", 1)
+        
+        # For other URL formats (ssh, etc.), return as-is
+        return repo_url
 
     def restart_container(self, container_name: str) -> Dict[str, Any]:
         """Restart a stopped container"""
@@ -323,6 +405,7 @@ class PersistentContainerManager:
                 "status": status or "running",
                 "container_id": container_name,
                 "access_url": f"http://localhost:{port}" if port else None,
+                "port": port,
                 "reused": True,
             }
 

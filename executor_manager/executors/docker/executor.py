@@ -97,6 +97,10 @@ class DockerExecutor(Executor):
         # Check if this is a validation task (validation tasks use negative task_id)
         is_validation_task = task.get("type") == "validation"
         
+        # Check if this task should use persistent container
+        workspace_type = self._get_workspace_type_from_task(task)
+        is_persistent = workspace_type == "persistent"
+        
         # Initialize execution status
         execution_status = {
             "status": "success",
@@ -107,11 +111,15 @@ class DockerExecutor(Executor):
         }
         
         try:
-            # Determine execution path based on whether container name exists
-            if executor_name:
+            # Determine execution path based on workspace type and container name
+            if is_persistent and not is_validation_task:
+                # Use persistent container manager for persistent workspace
+                self._execute_in_persistent_container(task, task_info, execution_status)
+            elif executor_name:
+                # Reuse existing container (for follow-up tasks)
                 self._execute_in_existing_container(task, execution_status)
             else:
-                # Generate new container name
+                # Generate new container name for ephemeral container
                 execution_status["executor_name"] = generate_executor_name(task_id, subtask_id, user_name)
 
                 self._create_new_container(task, task_info, execution_status)
@@ -395,6 +403,157 @@ class DockerExecutor(Executor):
                 return first_bot.get("base_image")
         return None
     
+    def _get_workspace_type_from_task(self, task: Dict[str, Any]) -> str:
+        """Extract workspace_type from task's bot configuration"""
+        bots = task.get("bot", [])
+        if bots and isinstance(bots, list) and len(bots) > 0:
+            first_bot = bots[0]
+            if isinstance(first_bot, dict):
+                return first_bot.get("workspace_type", "ephemeral")
+        return "ephemeral"
+    
+    def _get_shell_info_from_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract shell information from task's bot configuration"""
+        bots = task.get("bot", [])
+        if bots and isinstance(bots, list) and len(bots) > 0:
+            first_bot = bots[0]
+            if isinstance(first_bot, dict):
+                return {
+                    "shell_id": first_bot.get("shell_id"),
+                    "shell_resources": first_bot.get("shell_resources"),
+                    "workspace_type": first_bot.get("workspace_type", "ephemeral"),
+                }
+        return {"shell_id": None, "shell_resources": None, "workspace_type": "ephemeral"}
+    
+    def _execute_in_persistent_container(
+        self, task: Dict[str, Any], task_info: Dict[str, Any], status: Dict[str, Any]
+    ) -> None:
+        """
+        Execute task in a persistent container.
+        
+        Uses PersistentContainerManager to get or create a persistent container
+        based on user_id and shell_id.
+        """
+        from executor_manager.executors.docker.persistent_container import PersistentContainerManager
+        
+        user_config = task.get("user") or {}
+        user_id = user_config.get("id")
+        shell_info = self._get_shell_info_from_task(task)
+        shell_id = shell_info.get("shell_id")
+        
+        if not user_id or not shell_id:
+            logger.warning(f"Missing user_id ({user_id}) or shell_id ({shell_id}) for persistent container, falling back to ephemeral")
+            # Fallback to ephemeral container
+            status["executor_name"] = generate_executor_name(
+                task_info["task_id"], task_info["subtask_id"], task_info["user_name"]
+            )
+            self._create_new_container(task, task_info, status)
+            return
+        
+        # Get executor image
+        executor_image = self._get_executor_image(task)
+        
+        # Build shell config for persistent container
+        shell_config = {
+            "resources": shell_info.get("shell_resources") or {},
+            "baseImage": self._get_base_image_from_task(task),
+        }
+        
+        # Build git config with authentication
+        user_config = task.get("user") or {}
+        git_config = {
+            "repo_url": task.get("git_url"),
+            "branch": task.get("branch_name"),
+            "git_token": user_config.get("git_token"),
+            "git_login": user_config.get("git_login"),
+        }
+        
+        # Get or create persistent container
+        persistent_manager = PersistentContainerManager()
+        container_result = persistent_manager.get_or_create_container(
+            user_id=user_id,
+            shell_id=shell_id,
+            shell_config=shell_config,
+            git_config=git_config,
+            executor_image=executor_image,
+        )
+        
+        if container_result.get("status") == "error":
+            raise RuntimeError(container_result.get("error_message", "Failed to get/create persistent container"))
+        
+        # Update executor name with persistent container name
+        container_name = container_result.get("container_id")
+        status["executor_name"] = container_name
+        
+        # Get container port
+        port = container_result.get("port") or self._get_container_port(container_name)
+        
+        if container_result.get("reused"):
+            logger.info(f"Reusing persistent container {container_name} for task {task_info['task_id']}")
+        else:
+            logger.info(f"Created new persistent container {container_name} for task {task_info['task_id']}")
+        
+        # For persistent containers, always send task via HTTP API
+        # Wait for container to be ready if it was just created
+        if not container_result.get("reused"):
+            self._wait_for_container_ready(container_name, port)
+        
+        # Send task to container via HTTP API
+        if port:
+            response = self._send_task_to_container(task, DEFAULT_DOCKER_HOST, port)
+            if response.json().get("status") == "success":
+                status["progress"] = DEFAULT_PROGRESS_COMPLETE
+                status["error_msg"] = response.json().get("error_msg", "")
+        else:
+            raise RuntimeError(f"Could not get port for persistent container {container_name}")
+    
+    def _wait_for_container_ready(self, container_name: str, port: int, timeout: int = 30) -> bool:
+        """
+        Wait for container to be ready to accept HTTP requests.
+        
+        Args:
+            container_name: Name of the container
+            port: Port to check
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            True if container is ready, False otherwise
+        """
+        start_time = time.time()
+        endpoint = f"http://{DEFAULT_DOCKER_HOST}:{port}/health"
+        
+        logger.info(f"Waiting for container {container_name} to be ready on port {port}...")
+        
+        while time.time() - start_time < timeout:
+            try:
+                response = self.requests.get(endpoint, timeout=2)
+                if response.status_code == 200:
+                    logger.info(f"Container {container_name} is ready")
+                    return True
+            except Exception:
+                pass
+            
+            # Check if container is still running
+            try:
+                result = self.subprocess.run(
+                    ["docker", "inspect", "--format", "{{.State.Status}}", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    status = result.stdout.strip()
+                    if status != "running":
+                        logger.error(f"Container {container_name} is not running (status: {status})")
+                        return False
+            except Exception as e:
+                logger.warning(f"Error checking container status: {e}")
+            
+            time.sleep(1)
+        
+        logger.warning(f"Timeout waiting for container {container_name} to be ready")
+        return True  # Return True anyway to attempt sending task
+    
     def _get_executor_image(self, task: Dict[str, Any]) -> str:
         """Get executor image name"""
         executor_image = task.get("executor_image", os.getenv("EXECUTOR_IMAGE", ""))
@@ -498,9 +657,12 @@ class DockerExecutor(Executor):
     
     def _add_workspace_mount(self, cmd: List[str]) -> None:
         """Add workspace mount configuration"""
-        executor_workspace = os.getenv("EXECUTOR_WORKSPACE", "")  # Fix spelling error
+        executor_workspace = os.getenv("EXECUTOR_WORKSPACE", "")
         if executor_workspace:
             cmd.extend(["-v", f"{executor_workspace}:{WORKSPACE_MOUNT_PATH}"])
+        else:
+            logger.warning("EXECUTOR_WORKSPACE environment variable not set, workspace will not be mounted. "
+                          "This may cause issues with code download and workspace management.")
     
     def _add_network_config(self, cmd: List[str]) -> None:
         """Add network configuration"""
