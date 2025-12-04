@@ -215,6 +215,8 @@ export const TaskContextProvider = ({ children }: { children: ReactNode }) => {
     if (selectedTask) {
       // Mark task as viewed when selected
       markTaskAsViewed(selectedTask.id, selectedTask.status);
+      // Trigger re-render of task list to update unread indicator
+      setViewStatusVersion(prev => prev + 1);
       refreshSelectedTaskDetail(false); // Manual task selection, not auto-refresh
     } else {
       setSelectedTaskDetail(null);

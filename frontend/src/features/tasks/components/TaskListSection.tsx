@@ -317,6 +317,9 @@ export default function TaskListSection({
       <div className="space-y-0">
         {tasks.map(task => {
           const showMenu = hoveredTaskId === task.id || longPressTaskId === task.id;
+          // Don't show unread indicator for currently selected task
+          const isCurrentTask = selectedTaskDetail?.id === task.id;
+          const shouldShowUnreadDot = !isCurrentTask && isTaskUnread(task);
 
           // Collapsed mode: Show only status icon with tooltip
           if (isCollapsed) {
@@ -350,7 +353,7 @@ export default function TaskListSection({
                         <div className="w-4 h-4 flex items-center justify-center">
                           {getStatusIcon(task.status)}
                         </div>
-                        {isTaskUnread(task) && (
+                        {shouldShowUnreadDot && (
                           <span
                             className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${getUnreadDotColor(task.status)} animate-pulse-dot`}
                           />
@@ -411,7 +414,7 @@ export default function TaskListSection({
                           <div className="w-4 h-4 flex items-center justify-center">
                             {getStatusIcon(task.status)}
                           </div>
-                          {isTaskUnread(task) && (
+                          {shouldShowUnreadDot && (
                             <span
                               className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${getUnreadDotColor(task.status)} animate-pulse-dot`}
                             />
