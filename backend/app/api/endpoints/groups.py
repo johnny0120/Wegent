@@ -5,7 +5,8 @@
 """
 Group API endpoints
 """
-from typing import List
+import logging
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -28,8 +29,10 @@ from app.schemas.group import (
     TransferOwnershipRequest,
 )
 from app.services.group_service import GroupService
+from app.services.model_aggregation_service import model_aggregation_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_group_service(db: Session = Depends(get_db)) -> GroupService:
@@ -328,3 +331,624 @@ async def list_group_teams(
             for t in teams
         ],
     }
+
+
+@router.post("/{group_id}/models", status_code=status.HTTP_201_CREATED)
+async def create_group_model(
+    group_id: int,
+    model_data: Dict[str, Any],
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Create a new model in the specified group (Developer+ permission required)
+    """
+    # Check if user has create permission in the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "create")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to create resources in this group"
+        )
+    
+    # Import here to avoid circular import
+    from app.models.kind import Kind
+    from app.services.kind_impl import ModelKindService
+    
+    try:
+        # Validate the model data structure
+        from app.schemas.kind import Model
+        model_crd = Model.model_validate(model_data)
+        
+        # Check if model already exists in this group
+        existing = (
+            db.query(Kind)
+            .filter(
+                Kind.group_id == group_id,
+                Kind.kind == "Model",
+                Kind.namespace == model_data["metadata"]["namespace"],
+                Kind.name == model_data["metadata"]["name"],
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Model '{model_data['metadata']['name']}' already exists in this group"
+            )
+        
+        # Create ModelKindService instance for data processing
+        model_service = ModelKindService()
+        
+        # Extract and process resource data (including API key encryption)
+        resource_data = model_service._extract_resource_data(model_data)
+        
+        # Create new group model
+        db_resource = Kind(
+            user_id=current_user.id,  # Creator user ID
+            group_id=group_id,        # Group ownership
+            kind="Model",
+            name=model_data["metadata"]["name"],
+            namespace=model_data["metadata"]["namespace"],
+            json=resource_data,
+        )
+        
+        db.add(db_resource)
+        db.commit()
+        db.refresh(db_resource)
+        
+        logger.info(
+            f"Created group Model resource: name='{model_data['metadata']['name']}', "
+            f"namespace='{model_data['metadata']['namespace']}', group_id={group_id}, "
+            f"user_id={current_user.id}, resource_id={db_resource.id}"
+        )
+        
+        # Format response using ModelKindService
+        formatted_resource = model_service._format_resource(db_resource)
+        
+        return {
+            "message": "Group model created successfully",
+            "model": formatted_resource,
+            "resource_id": db_resource.id
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid model data: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error creating group model: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create group model"
+        )
+
+
+@router.get("/{group_id}/models/unified")
+async def get_group_unified_models(
+    group_id: int,
+    shell_type: Optional[str] = Query(None, description="Filter models compatible with shell type"),
+    include_config: bool = Query(False, description="Include full model configuration"),
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+) -> Dict[str, Any]:
+    """
+    Get unified models available to a group.
+    
+    Returns models in the following priority order:
+    1. Group-specific models (group_id = group_id)
+    2. Public models (user_id = 0, group_id = null)
+    
+    Note: Personal user models are NOT included in group context.
+    """
+    # Check if user has access to the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to view group resources"
+        )
+    
+    # Delegate to service layer
+    models = model_aggregation_service.list_group_available_models(
+        db=db,
+        group_id=group_id,
+        current_user=current_user,
+        shell_type=shell_type,
+        include_config=include_config,
+    )
+    
+    return {"data": models}
+
+
+@router.put("/{group_id}/models/{model_id}", status_code=status.HTTP_200_OK)
+async def update_group_model(
+    group_id: int,
+    model_id: str,
+    model_data: Dict[str, Any],
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Update a model in the specified group (Developer+ permission required)
+    """
+    # Check if user has edit permission in the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "edit")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to edit resources in this group"
+        )
+    
+    # Import here to avoid circular import
+    from app.models.kind import Kind
+    from app.services.kind_impl import ModelKindService
+    
+    try:
+        # Validate the model data structure
+        from app.schemas.kind import Model
+        model_crd = Model.model_validate(model_data)
+        
+        # Find the existing model in this group
+        existing = (
+            db.query(Kind)
+            .filter(
+                Kind.group_id == group_id,
+                Kind.kind == "Model",
+                Kind.name == model_id,
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Model '{model_id}' not found in this group"
+            )
+        
+        # Create ModelKindService instance for data processing
+        model_service = ModelKindService()
+        
+        # Extract and process resource data (including API key encryption)
+        resource_data = model_service._extract_resource_data(model_data)
+        
+        # Update the existing model
+        existing.json = resource_data
+        existing.namespace = model_data["metadata"]["namespace"]
+        # Note: name and group_id should not be changed
+        
+        db.commit()
+        db.refresh(existing)
+        
+        logger.info(
+            f"Updated group Model resource: name='{model_id}', "
+            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+        )
+        
+        # Format response using ModelKindService
+        formatted_resource = model_service._format_resource(existing)
+        
+        return {
+            "message": "Group model updated successfully",
+            "model": formatted_resource,
+            "resource_id": existing.id
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid model data: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error updating group model: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update group model"
+        )
+
+
+@router.delete("/{group_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group_model(
+    group_id: int,
+    model_id: str,
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Delete a model from the specified group (Maintainer+ permission required)
+    """
+    # Check if user has delete permission in the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "delete")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to delete resources in this group"
+        )
+    
+    # Import here to avoid circular import
+    from app.models.kind import Kind
+    
+    try:
+        # Find the existing model in this group
+        existing = (
+            db.query(Kind)
+            .filter(
+                Kind.group_id == group_id,
+                Kind.kind == "Model",
+                Kind.name == model_id,
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Model '{model_id}' not found in this group"
+            )
+        
+        # Soft delete by setting is_active to False
+        existing.is_active = False
+        
+        db.commit()
+        
+        logger.info(
+            f"Deleted group Model resource: name='{model_id}', "
+            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+        )
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error deleting group model: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete group model"
+        )
+
+
+# Group Shell APIs
+@router.get("/{group_id}/shells")
+async def list_group_shells(
+    group_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """Get shells in this group (Reporter+ permission required)"""
+    # Check view permission
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to view group resources"
+        )
+
+    from app.models.kind import Kind
+
+    # Query shells in this group
+    query = db.query(Kind).filter(
+        Kind.group_id == group_id,
+        Kind.kind == "Shell",
+        Kind.is_active == True
+    )
+
+    total = query.count()
+    shells = query.offset(skip).limit(limit).all()
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "namespace": s.namespace,
+                "json": s.json,
+                "created_at": s.created_at,
+                "updated_at": s.updated_at,
+            }
+            for s in shells
+        ],
+    }
+
+
+@router.get("/{group_id}/shells/unified")
+async def get_group_unified_shells(
+    group_id: int,
+    include_config: bool = Query(False, description="Include full shell configuration"),
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+) -> Dict[str, Any]:
+    """
+    Get unified shells available to a group.
+    
+    Returns shells in the following priority order:
+    1. Group-specific shells (group_id = group_id)
+    2. Public shells (user_id = 0, group_id = null)
+    
+    Note: Personal user shells are NOT included in group context.
+    """
+    # Check if user has access to the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to view group resources"
+        )
+    
+    from app.models.kind import Kind
+    
+    # Get group shells
+    group_shells = (
+        db.query(Kind)
+        .filter(
+            Kind.group_id == group_id,
+            Kind.kind == "Shell",
+            Kind.is_active == True
+        )
+        .all()
+    )
+    
+    # Get public shells (user_id=0 indicates public resources)
+    public_shells = (
+        db.query(Kind)
+        .filter(
+            Kind.user_id == 0,
+            Kind.group_id.is_(None),
+            Kind.kind == "Shell",
+            Kind.is_active == True
+        )
+        .all()
+    )
+    
+    unified_shells = []
+    
+    # Add group shells
+    for shell in group_shells:
+        shell_data = shell.json or {}
+        metadata = shell_data.get("metadata", {})
+        spec = shell_data.get("spec", {})
+        labels = metadata.get("labels", {})
+        
+        unified_shells.append({
+            "name": shell.name,
+            "type": "user",  # In group context, group shells are marked as 'user' type
+            "displayName": metadata.get("displayName") or shell.name,
+            "shellType": spec.get("shellType", shell.name),  # Fallback to shell name
+            "baseImage": spec.get("baseImage"),
+            "baseShellRef": spec.get("baseShellRef"),
+            "executionType": labels.get("type") or spec.get("executionType"),
+            "creatorUserId": shell.user_id,
+        })
+    
+    # Add public shells
+    for shell in public_shells:
+        shell_data = shell.json or {}
+        metadata = shell_data.get("metadata", {})
+        spec = shell_data.get("spec", {})
+        labels = metadata.get("labels", {})
+        
+        unified_shells.append({
+            "name": shell.name,
+            "type": "public",
+            "displayName": metadata.get("displayName") or shell.name,
+            "shellType": spec.get("shellType", shell.name),  # Fallback to shell name
+            "baseImage": spec.get("baseImage"),
+            "baseShellRef": spec.get("baseShellRef"),
+            "executionType": labels.get("type") or spec.get("executionType"),
+        })
+    
+    return {"data": unified_shells}
+
+
+@router.post("/{group_id}/shells", status_code=status.HTTP_201_CREATED)
+async def create_group_shell(
+    group_id: int,
+    shell_data: Dict[str, Any],
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Create a new shell in the specified group (Developer+ permission required)
+    """
+    # Check if user has create permission in the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "create")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to create resources in this group"
+        )
+    
+    from app.models.kind import Kind
+    
+    try:
+        # Check if shell already exists in this group
+        existing = (
+            db.query(Kind)
+            .filter(
+                Kind.group_id == group_id,
+                Kind.kind == "Shell",
+                Kind.namespace == shell_data["metadata"]["namespace"],
+                Kind.name == shell_data["metadata"]["name"],
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Shell '{shell_data['metadata']['name']}' already exists in this group"
+            )
+        
+        # Create new group shell
+        db_resource = Kind(
+            user_id=current_user.id,  # Creator user ID
+            group_id=group_id,        # Group ownership
+            kind="Shell",
+            name=shell_data["metadata"]["name"],
+            namespace=shell_data["metadata"]["namespace"],
+            json=shell_data,
+        )
+        
+        db.add(db_resource)
+        db.commit()
+        db.refresh(db_resource)
+        
+        logger.info(
+            f"Created group Shell resource: name='{shell_data['metadata']['name']}', "
+            f"namespace='{shell_data['metadata']['namespace']}', group_id={group_id}, "
+            f"user_id={current_user.id}, resource_id={db_resource.id}"
+        )
+        
+        return {
+            "message": "Group shell created successfully",
+            "shell": shell_data,
+            "resource_id": db_resource.id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating group shell: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create group shell"
+        )
+
+
+@router.put("/{group_id}/shells/{shell_id}", status_code=status.HTTP_200_OK)
+async def update_group_shell(
+    group_id: int,
+    shell_id: str,
+    shell_data: Dict[str, Any],
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Update a shell in the specified group (Developer+ permission required)
+    """
+    # Check if user has edit permission in the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "edit")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to edit resources in this group"
+        )
+    
+    from app.models.kind import Kind
+    
+    try:
+        # Find the existing shell in this group
+        existing = (
+            db.query(Kind)
+            .filter(
+                Kind.group_id == group_id,
+                Kind.kind == "Shell",
+                Kind.name == shell_id,
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Shell '{shell_id}' not found in this group"
+            )
+        
+        # Update the existing shell
+        existing.json = shell_data
+        existing.namespace = shell_data["metadata"]["namespace"]
+        
+        db.commit()
+        db.refresh(existing)
+        
+        logger.info(
+            f"Updated group Shell resource: name='{shell_id}', "
+            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+        )
+        
+        return {
+            "message": "Group shell updated successfully",
+            "shell": shell_data,
+            "resource_id": existing.id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating group shell: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update group shell"
+        )
+
+
+@router.delete("/{group_id}/shells/{shell_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group_shell(
+    group_id: int,
+    shell_id: str,
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Delete a shell from the specified group (Maintainer+ permission required)
+    """
+    # Check if user has delete permission in the group
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "delete")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to delete resources in this group"
+        )
+    
+    from app.models.kind import Kind
+    
+    try:
+        # Find the existing shell in this group
+        existing = (
+            db.query(Kind)
+            .filter(
+                Kind.group_id == group_id,
+                Kind.kind == "Shell",
+                Kind.name == shell_id,
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Shell '{shell_id}' not found in this group"
+            )
+        
+        # Soft delete by setting is_active to False
+        existing.is_active = False
+        
+        db.commit()
+        
+        logger.info(
+            f"Deleted group Shell resource: name='{shell_id}', "
+            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+        )
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error deleting group shell: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete group shell"
+        )

@@ -26,6 +26,7 @@ import {
   ValidationStage,
   ValidationStatusResponse,
 } from '@/apis/shells';
+import { groupsApi } from '@/apis/groups';
 
 // Polling configuration
 const POLLING_INTERVAL = 2000; // 2 seconds
@@ -39,20 +40,31 @@ const STAGE_PROGRESS: Record<ValidationStage, number> = {
   running_checks: 70,
   completed: 100,
 };
-
 interface ShellEditProps {
   shell: UnifiedShell | null;
   onClose: () => void;
   toast: ReturnType<typeof import('@/hooks/use-toast').useToast>['toast'];
+  // Group context for creating group shells
+  groupId?: number | null;
+  groups?: Array<{ id: number; name: string }>;
+  isGroupContext?: boolean;
 }
 
-const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
+const ShellEdit: React.FC<ShellEditProps> = ({
+  shell,
+  onClose,
+  toast,
+  groupId,
+  groups = [],
+  isGroupContext = false
+}) => {
   const { t } = useTranslation('common');
   const isEditing = !!shell;
 
   // Form state
   const [name, setName] = useState(shell?.name || '');
   const [displayName, setDisplayName] = useState(shell?.displayName || '');
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId || null);
   const [baseShellRef, setBaseShellRef] = useState(shell?.baseShellRef || '');
   const [baseImage, setBaseImage] = useState(shell?.baseImage || '');
   const [originalBaseImage] = useState(shell?.baseImage || ''); // Track original value for edit mode
@@ -297,52 +309,105 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
   }, [isSaveDisabled, t]);
 
   const handleSave = async () => {
-    // Validation
-    if (!name.trim()) {
+  // Validation
+  if (!name.trim()) {
+    toast({
+      variant: 'destructive',
+      title: t('shells.errors.name_required'),
+    });
+    return;
+  }
+
+  // Group validation for group context
+  if (isGroupContext && !isEditing && !selectedGroupId) {
+    toast({
+      variant: 'destructive',
+      title: '请选择群组',
+      description: '创建群组执行器时必须选择目标群组',
+    });
+    return;
+  }
+
+  // Validate name format (lowercase letters, numbers, and hyphens only)
+  const nameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
+  if (!nameRegex.test(name)) {
+    toast({
+      variant: 'destructive',
+      title: t('shells.errors.name_invalid'),
+    });
+    return;
+  }
+
+  if (!isEditing) {
+    if (!baseShellRef) {
       toast({
         variant: 'destructive',
-        title: t('shells.errors.name_required'),
+        title: t('shells.errors.base_shell_required'),
       });
       return;
     }
 
-    // Validate name format (lowercase letters, numbers, and hyphens only)
-    const nameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
-    if (!nameRegex.test(name)) {
+    if (!baseImage.trim()) {
       toast({
         variant: 'destructive',
-        title: t('shells.errors.name_invalid'),
+        title: t('shells.errors.base_image_required'),
       });
       return;
     }
+  }
 
-    if (!isEditing) {
-      if (!baseShellRef) {
+  setSaving(true);
+  try {
+    if (isEditing) {
+      // Check if we're editing a group shell
+      if (isGroupContext && selectedGroupId) {
+        const shellCRD = {
+          apiVersion: 'agent.wecode.io/v1',
+          kind: 'Shell',
+          metadata: {
+            name: name.trim(),
+            namespace: 'default',
+            displayName: displayName.trim() || undefined,
+          },
+          spec: {
+            shellType: shell?.shellType || baseShellRef,
+            baseShellRef,
+            baseImage: baseImage.trim() || undefined,
+          },
+        };
+        await groupsApi.updateGroupShell(selectedGroupId, shell.name, shellCRD);
         toast({
-          variant: 'destructive',
-          title: t('shells.errors.base_shell_required'),
+          title: '群组执行器更新成功',
         });
-        return;
-      }
-
-      if (!baseImage.trim()) {
-        toast({
-          variant: 'destructive',
-          title: t('shells.errors.base_image_required'),
-        });
-        return;
-      }
-    }
-
-    setSaving(true);
-    try {
-      if (isEditing) {
+      } else {
         await shellApis.updateShell(shell.name, {
           displayName: displayName.trim() || undefined,
           baseImage: baseImage.trim() || undefined,
         });
         toast({
           title: t('shells.update_success'),
+        });
+      }
+    } else {
+      // Check if we're creating a group shell
+      if (isGroupContext && selectedGroupId) {
+        const shellCRD = {
+          apiVersion: 'agent.wecode.io/v1',
+          kind: 'Shell',
+          metadata: {
+            name: name.trim(),
+            namespace: 'default',
+            displayName: displayName.trim() || undefined,
+          },
+          spec: {
+            shellType: baseShellRef,
+            baseShellRef,
+            baseImage: baseImage.trim(),
+          },
+        };
+        await groupsApi.createGroupShell(selectedGroupId, shellCRD);
+        toast({
+          title: '群组执行器创建成功',
         });
       } else {
         await shellApis.createShell({
@@ -355,17 +420,18 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
           title: t('shells.create_success'),
         });
       }
-
-      onClose();
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: isEditing ? t('shells.errors.update_failed') : t('shells.errors.create_failed'),
-        description: (error as Error).message,
-      });
-    } finally {
-      setSaving(false);
     }
+
+    onClose();
+  } catch (error) {
+    toast({
+      variant: 'destructive',
+      title: isEditing ? t('shells.errors.update_failed') : t('shells.errors.create_failed'),
+      description: (error as Error).message,
+    });
+  } finally {
+    setSaving(false);
+  }
   };
 
   const handleBack = useCallback(() => {
@@ -443,6 +509,50 @@ const ShellEdit: React.FC<ShellEditProps> = ({ shell, onClose, toast }) => {
 
       {/* Form */}
       <div className="space-y-6 max-w-xl mx-2">
+        {/* Group Selector (only for group context and when creating) */}
+        {isGroupContext && !isEditing && groups.length > 0 && (
+          <div className="space-y-2">
+            <Label htmlFor="groupSelect" className="text-lg font-semibold text-text-primary">
+              目标群组 <span className="text-red-400">*</span>
+            </Label>
+            <Select
+              value={selectedGroupId?.toString() || ''}
+              onValueChange={(value) => setSelectedGroupId(Number(value))}
+            >
+              <SelectTrigger className="bg-base">
+                <SelectValue placeholder="选择要创建执行器的群组" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((group) => (
+                  <SelectItem key={group.id} value={group.id.toString()}>
+                    {group.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-text-muted">
+              选择要在哪个群组下创建此执行器。群组执行器只有群组成员可以使用。
+            </p>
+          </div>
+        )}
+
+        {/* Current Group Display (for editing group shells) */}
+        {isGroupContext && isEditing && selectedGroupId && (
+          <div className="space-y-2">
+            <Label className="text-lg font-semibold text-text-primary">
+              所属群组
+            </Label>
+            <div className="px-3 py-2 bg-muted rounded-md border border-border">
+              <span className="text-text-primary">
+                {groups.find(g => g.id === selectedGroupId)?.name || `群组 ${selectedGroupId}`}
+              </span>
+            </div>
+            <p className="text-xs text-text-muted">
+              群组执行器的所属群组不能修改
+            </p>
+          </div>
+        )}
+
         {/* Shell Name */}
         <div className="space-y-2">
           <Label htmlFor="name" className="text-lg font-semibold text-text-primary">

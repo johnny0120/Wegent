@@ -367,12 +367,12 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
 
     def delete_group(self, group_id: int, user_id: int) -> None:
         """Delete a group (only Owner can delete)"""
-        # Check permission
+        # Check permission (any Owner can delete)
         has_perm, role = self.check_permission(group_id, user_id, "delete_group")
-        if not has_perm or role != GroupRole.OWNER:
+        if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only group owner can delete the group"
+                detail="Only group owners can delete the group"
             )
 
         group = self.db.query(Group).filter(Group.id == group_id).first()
@@ -405,8 +405,11 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 detail="Cannot delete group with resources"
             )
 
-        # Soft delete
-        group.is_active = False
+        # Delete all group members first
+        self.db.query(GroupMember).filter(GroupMember.group_id == group_id).delete()
+        
+        # Hard delete group
+        self.db.delete(group)
         self.db.commit()
 
     # Member management methods
@@ -536,12 +539,8 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 detail="Cannot change owner's role"
             )
 
-        # Cannot change to Owner (use transfer_ownership instead)
-        if update.role == GroupRole.OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Use transfer_ownership to change owner"
-            )
+        # Allow multiple Owners - no special handling needed
+        # Just update the role directly
 
         member.role = update.role.value
         self.db.commit()
@@ -578,12 +577,25 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Member not found"
             )
 
-        # Cannot remove owner
+        # Check if removing the last owner
         if GroupRole(member.role) == GroupRole.OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot remove group owner"
+            # Count remaining owners
+            owner_count = (
+                self.db.query(GroupMember)
+                .filter(
+                    and_(
+                        GroupMember.group_id == group_id,
+                        GroupMember.role == GroupRole.OWNER.value,
+                        GroupMember.is_active == True,
+                    )
+                )
+                .count()
             )
+            if owner_count <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot remove the last owner. Group must have at least one owner."
+                )
 
         # Transfer user's resources to group owner
         group = self.db.query(Group).filter(Group.id == group_id).first()
@@ -591,8 +603,8 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             and_(Kind.group_id == group_id, Kind.user_id == target_user_id)
         ).update({Kind.user_id: group.owner_user_id})
 
-        # Soft delete membership
-        member.is_active = False
+        # Hard delete membership
+        self.db.delete(member)
         self.db.commit()
 
     def leave_group(self, group_id: int, user_id: int) -> None:
@@ -614,12 +626,25 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Not a member of this group"
             )
 
-        # Owner cannot leave (must transfer ownership first)
+        # Check if leaving as the last owner
         if GroupRole(member.role) == GroupRole.OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Owner cannot leave group. Transfer ownership first."
+            # Count remaining owners
+            owner_count = (
+                self.db.query(GroupMember)
+                .filter(
+                    and_(
+                        GroupMember.group_id == group_id,
+                        GroupMember.role == GroupRole.OWNER.value,
+                        GroupMember.is_active == True,
+                    )
+                )
+                .count()
             )
+            if owner_count <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot leave as the last owner. Group must have at least one owner."
+                )
 
         # Transfer user's resources to group owner
         group = self.db.query(Group).filter(Group.id == group_id).first()
@@ -627,8 +652,8 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             and_(Kind.group_id == group_id, Kind.user_id == user_id)
         ).update({Kind.user_id: group.owner_user_id})
 
-        # Soft delete membership
-        member.is_active = False
+        # Hard delete membership
+        self.db.delete(member)
         self.db.commit()
 
     def transfer_ownership(

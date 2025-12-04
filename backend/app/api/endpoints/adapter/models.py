@@ -5,13 +5,14 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.core import security
 from app.models.kind import Kind
 from app.models.user import User
+from app.schemas.kind import Model as ModelCRD
 from app.schemas.model import (
     ModelBulkCreateItem,
     ModelCreate,
@@ -22,6 +23,10 @@ from app.schemas.model import (
 )
 from app.services.adapters import public_model_service
 from app.services.model_aggregation_service import ModelType, model_aggregation_service
+
+# Import AI client libraries at module level for better type checking
+import anthropic
+import openai
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -147,8 +152,6 @@ def get_unified_model(
       "isActive": true
     }
     """
-    from fastapi import HTTPException
-
     result = model_aggregation_service.resolve_model(
         db=db, current_user=current_user, name=model_name, model_type=model_type
     )
@@ -317,8 +320,6 @@ def test_model_connection(
 
     try:
         if provider_type == "openai":
-            import openai
-
             client = openai.OpenAI(
                 api_key=api_key, base_url=base_url or "https://api.openai.com/v1"
             )
@@ -331,8 +332,6 @@ def test_model_connection(
             return {"success": True, "message": f"Successfully connected to {model_id}"}
 
         elif provider_type == "anthropic":
-            import anthropic
-
             # Create client with base_url in constructor for proper initialization
             # This is required for compatible APIs like MiniMax
             client_kwargs = {"auth_token": api_key}
@@ -376,8 +375,6 @@ def get_compatible_models(
       ]
     }
     """
-    from app.schemas.kind import Model as ModelCRD
-
     # Query all active Model CRDs from kinds table
     models = (
         db.query(Kind)

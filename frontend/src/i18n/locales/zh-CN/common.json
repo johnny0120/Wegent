@@ -44,6 +44,13 @@
     "settings": "设置",
     "docs": "文档"
   },
+  "main_navigation": {
+    "tasks": "任务",
+    "chat": "聊天",
+    "code": "编码",
+    "settings": "设置",
+    "docs": "文档"
+  },
   "sidebar": {
     "recent_visits": "最近访问",
     "light_mode": "浅色模式",
@@ -385,6 +392,9 @@
     "back": "返回",
     "cancel": "取消",
     "confirm": "确认",
+    "create": "创建",
+    "save": "保存",
+    "saving": "保存中...",
     "open_sidebar": "打开侧边栏",
     "close_sidebar": "关闭侧边栏"
   },

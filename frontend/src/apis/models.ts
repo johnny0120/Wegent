@@ -68,7 +68,7 @@ export interface ModelNamesResponse {
 }
 
 // Unified Model Types (new API with type differentiation)
-export type ModelTypeEnum = 'public' | 'user';
+export type ModelTypeEnum = 'public' | 'user' | 'group';
 
 export interface UnifiedModel {
   name: string;
@@ -78,6 +78,7 @@ export interface UnifiedModel {
   modelId?: string | null;
   config?: Record<string, unknown>;
   isActive?: boolean;
+  creatorUserId?: number; // Creator user ID for group models
 }
 
 export interface UnifiedModelListResponse {

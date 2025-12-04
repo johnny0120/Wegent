@@ -463,6 +463,117 @@ class ModelAggregationService:
         # Then try public models
         return self.get_model_by_name_and_type(db, current_user, name, ModelType.PUBLIC)
 
+    def list_group_available_models(
+        self,
+        db: Session,
+        group_id: int,
+        current_user: User,
+        shell_type: Optional[str] = None,
+        include_config: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        List models available to a specific group.
+        
+        Returns models in the following priority order:
+        1. Group-specific models (group_id = group_id)
+        2. Public models (user_id = 0, group_id = null)
+        
+        Note: Personal user models are NOT included in group context.
+        
+        Args:
+            db: Database session
+            group_id: Group ID to get models for
+            current_user: Current user (for permission context)
+            shell_type: Optional shell type to filter compatible models
+            include_config: Whether to include full config in response
+            
+        Returns:
+            List of unified model dictionaries with 'type' field ('group' or 'public')
+        """
+        from app.services.kind import kind_service
+        from app.services.adapters.public_model import public_model_service
+        
+        result_models = []
+        
+        # 1. Get group-specific models (group_id = group_id)
+        group_model_resources = kind_service.list_resources_by_group(
+            group_id=group_id, kind="Model", namespace="default"
+        )
+        
+        for resource in group_model_resources:
+            model_data = kind_service._format_resource("Model", resource)
+            
+            # Skip custom config models
+            if self._is_custom_model(model_data):
+                continue
+                
+            info = self._extract_model_info_from_crd(model_data)
+            
+            # Filter by shell compatibility if shell_type is provided
+            if shell_type:
+                support_model = self._get_shell_support_model(db, shell_type)
+                if not self._is_model_compatible_with_shell(
+                    info["provider"], shell_type, support_model
+                ):
+                    continue
+            
+            unified_model = {
+                "name": resource.name,
+                "type": "group",  # Mark as group model
+                "displayName": info["display_name"],
+                "provider": info["provider"],
+                "modelId": info["model_id"],
+                "creatorUserId": resource.user_id,  # Include creator user ID for editing
+            }
+            
+            if include_config:
+                unified_model["config"] = info["config"]
+                unified_model["isActive"] = resource.is_active
+                
+            result_models.append(unified_model)
+        
+        # 2. Get public models (user_id = 0)
+        public_models = public_model_service.get_models(
+            db=db,
+            skip=0,
+            limit=1000,  # Get all public models
+            current_user=current_user,
+        )
+        
+        for model_dict in public_models:
+            config = model_dict.get("config", {})
+            env = config.get("env", {}) if isinstance(config, dict) else {}
+            
+            provider = env.get("model") if isinstance(env, dict) else None
+            model_id = env.get("model_id") if isinstance(env, dict) else None
+            
+            # Filter by shell compatibility if shell_type is provided
+            if shell_type:
+                support_model = self._get_shell_support_model(db, shell_type)
+                if not self._is_model_compatible_with_shell(
+                    provider, shell_type, support_model
+                ):
+                    continue
+            
+            unified_model = {
+                "name": model_dict.get("name", ""),
+                "type": "public",  # Mark as public model
+                "displayName": None,  # Public models don't have displayName in current schema
+                "provider": provider,
+                "modelId": model_id,
+            }
+            
+            if include_config:
+                unified_model["config"] = config
+                unified_model["isActive"] = model_dict.get("is_active", True)
+                
+            result_models.append(unified_model)
+        
+        # Sort by name
+        result_models.sort(key=lambda x: x["name"])
+        
+        return result_models
+
 
 # Singleton instance
 model_aggregation_service = ModelAggregationService()

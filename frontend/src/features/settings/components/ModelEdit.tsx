@@ -20,11 +20,16 @@ import { Loader2 } from 'lucide-react';
 import { EyeIcon, EyeSlashIcon, BeakerIcon } from '@heroicons/react/24/outline';
 import { useTranslation } from '@/hooks/useTranslation';
 import { modelApis, ModelCRD } from '@/apis/models';
+import { groupsApi } from '@/apis/groups';
 
 interface ModelEditProps {
   model: ModelCRD | null;
   onClose: () => void;
   toast: ReturnType<typeof import('@/hooks/use-toast').useToast>['toast'];
+  // Group context for creating group models
+  groupId?: number | null;
+  groups?: Array<{ id: number; name: string }>;
+  isGroupContext?: boolean;
 }
 
 const OPENAI_MODEL_OPTIONS = [
@@ -42,13 +47,21 @@ const ANTHROPIC_MODEL_OPTIONS = [
   { value: 'custom', label: 'Custom...' },
 ];
 
-const ModelEdit: React.FC<ModelEditProps> = ({ model, onClose, toast }) => {
+const ModelEdit: React.FC<ModelEditProps> = ({
+  model,
+  onClose,
+  toast,
+  groupId,
+  groups = [],
+  isGroupContext = false
+}) => {
   const { t } = useTranslation('common');
   const isEditing = !!model;
 
   // Form state
   const [modelIdName, setModelIdName] = useState(model?.metadata.name || ''); // Unique identifier (ID)
   const [displayName, setDisplayName] = useState(model?.metadata.displayName || ''); // Human-readable name
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId || null);
   const [providerType, setProviderType] = useState<'openai' | 'anthropic'>(
     model?.spec.modelConfig?.env?.model === 'openai' ? 'openai' : 'anthropic'
   );
@@ -181,6 +194,16 @@ const ModelEdit: React.FC<ModelEditProps> = ({ model, onClose, toast }) => {
       return;
     }
 
+    // Group validation for group context
+    if (isGroupContext && !isEditing && !selectedGroupId) {
+      toast({
+        variant: 'destructive',
+        title: '请选择群组',
+        description: '创建群组模型时必须选择目标群组',
+      });
+      return;
+    }
+
     // Validate ID format (lowercase letters, numbers, and hyphens only)
     const nameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
     if (!nameRegex.test(modelIdName)) {
@@ -244,17 +267,32 @@ const ModelEdit: React.FC<ModelEditProps> = ({ model, onClose, toast }) => {
           state: 'Available',
         },
       };
-
       if (isEditing) {
-        await modelApis.updateModel(model.metadata.name, modelCRD);
-        toast({
-          title: t('models.update_success'),
-        });
+        // Check if we're editing a group model
+        if (isGroupContext && selectedGroupId) {
+          await groupsApi.updateGroupModel(selectedGroupId, model.metadata.name, modelCRD);
+          toast({
+            title: '群组模型更新成功',
+          });
+        } else {
+          await modelApis.updateModel(model.metadata.name, modelCRD);
+          toast({
+            title: t('models.update_success'),
+          });
+        }
       } else {
-        await modelApis.createModel(modelCRD);
-        toast({
-          title: t('models.create_success'),
-        });
+        // Check if we're creating a group model
+        if (isGroupContext && selectedGroupId) {
+          await groupsApi.createGroupModel(selectedGroupId, modelCRD);
+          toast({
+            title: '群组模型创建成功',
+          });
+        } else {
+          await modelApis.createModel(modelCRD);
+          toast({
+            title: t('models.create_success'),
+          });
+        }
       }
 
       onClose();
@@ -327,6 +365,50 @@ const ModelEdit: React.FC<ModelEditProps> = ({ model, onClose, toast }) => {
 
       {/* Form */}
       <div className="space-y-6 max-w-xl mx-2">
+        {/* Group Selector (only for group context and when creating) */}
+        {isGroupContext && !isEditing && groups.length > 0 && (
+          <div className="space-y-2">
+            <Label htmlFor="groupSelect" className="text-lg font-semibold text-text-primary">
+              目标群组 <span className="text-red-400">*</span>
+            </Label>
+            <Select
+              value={selectedGroupId?.toString() || ''}
+              onValueChange={(value) => setSelectedGroupId(Number(value))}
+            >
+              <SelectTrigger className="bg-base">
+                <SelectValue placeholder="选择要创建模型的群组" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((group) => (
+                  <SelectItem key={group.id} value={group.id.toString()}>
+                    {group.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-text-muted">
+              选择要在哪个群组下创建此模型。群组模型只有群组成员可以使用。
+            </p>
+          </div>
+        )}
+
+        {/* Current Group Display (for editing group models) */}
+        {isGroupContext && isEditing && selectedGroupId && (
+          <div className="space-y-2">
+            <Label className="text-lg font-semibold text-text-primary">
+              所属群组
+            </Label>
+            <div className="px-3 py-2 bg-muted rounded-md border border-border">
+              <span className="text-text-primary">
+                {groups.find(g => g.id === selectedGroupId)?.name || `群组 ${selectedGroupId}`}
+              </span>
+            </div>
+            <p className="text-xs text-text-muted">
+              群组模型的所属群组不能修改
+            </p>
+          </div>
+        )}
+
         {/* Model ID */}
         <div className="space-y-2">
           <Label htmlFor="modelIdName" className="text-lg font-semibold text-text-primary">

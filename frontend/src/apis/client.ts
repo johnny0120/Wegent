@@ -32,8 +32,21 @@ class APIClient {
       },
     };
 
+    console.log('API Request:', {
+      url,
+      method: config.method || 'GET',
+      hasToken: !!token,
+      tokenPrefix: token ? token.substring(0, 20) + '...' : 'none'
+    });
+
     try {
       const response = await fetch(url, config);
+      console.log('API Response:', {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get('content-type')
+      });
       // Handle authentication errors
       if (response.status === 401) {
         removeToken();
@@ -72,15 +85,44 @@ class APIClient {
         throw new Error(errorMsg);
       }
 
-      const result = await response.json();
-      return result;
+      // Handle empty responses (204 No Content, etc.)
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        return {} as T;
+      }
+      
+      const text = await response.text();
+      if (!text.trim()) {
+        return {} as T;
+      }
+      
+      try {
+        const result = JSON.parse(text);
+        return result;
+      } catch (error) {
+        console.error('Failed to parse JSON response:', text);
+        return {} as T;
+      }
     } catch (error) {
       throw error;
     }
   }
 
-  async get<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  async get<T>(endpoint: string, options?: { params?: Record<string, any> }): Promise<T> {
+    let url = endpoint;
+    if (options?.params) {
+      const searchParams = new URLSearchParams();
+      Object.entries(options.params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          searchParams.append(key, String(value));
+        }
+      });
+      const queryString = searchParams.toString();
+      if (queryString) {
+        url += `?${queryString}`;
+      }
+    }
+    return this.request<T>(url, { method: 'GET' });
   }
 
   async post<T>(endpoint: string, data?: unknown): Promise<T> {

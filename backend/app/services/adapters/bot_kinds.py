@@ -5,7 +5,7 @@
 import copy
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import HTTPException
 from shared.utils.crypto import encrypt_sensitive_data, is_data_encrypted
@@ -1025,10 +1025,10 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
     def _convert_to_bot_dict(
         self,
         bot: Kind,
-        ghost: Kind | None = None,
-        shell: Kind | None = None,
+        ghost: Optional[Kind] = None,
+        shell: Optional[Kind] = None,
         model=None,
-        override_agent_config: Dict[str, Any] | None = None,
+        override_agent_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Convert kinds to bot-like dictionary.

@@ -18,6 +18,11 @@ import type {
   InviteAllUsersRequest,
   TransferOwnershipRequest,
 } from '../types/group'
+import type { UnifiedModel } from './models'
+
+export interface GroupUnifiedModelsResponse {
+  data: UnifiedModel[]
+}
 
 const GROUPS_BASE = '/groups'
 
@@ -30,10 +35,18 @@ export const groupsApi = {
     skip?: number
     limit?: number
   }): Promise<GroupListResponse> => {
-    const response = await apiClient.get<GroupListResponse>(GROUPS_BASE, {
-      params,
-    })
-    return response.data
+    console.log('groupsApi.listGroups called with params:', params);
+    try {
+      console.log('Making API call to:', GROUPS_BASE);
+      const response = await apiClient.get<GroupListResponse>(GROUPS_BASE, {
+        params,
+      });
+      console.log('API client returned:', response);
+      return response;
+    } catch (error) {
+      console.error('Error in groupsApi.listGroups:', error);
+      throw error;
+    }
   },
 
   /**
@@ -41,7 +54,7 @@ export const groupsApi = {
    */
   createGroup: async (data: GroupCreate): Promise<GroupDetail> => {
     const response = await apiClient.post<GroupDetail>(GROUPS_BASE, data)
-    return response.data
+    return response
   },
 
   /**
@@ -51,7 +64,7 @@ export const groupsApi = {
     const response = await apiClient.get<GroupDetail>(
       `${GROUPS_BASE}/${groupId}`
     )
-    return response.data
+    return response
   },
 
   /**
@@ -65,7 +78,7 @@ export const groupsApi = {
       `${GROUPS_BASE}/${groupId}`,
       data
     )
-    return response.data
+    return response
   },
 
   /**
@@ -87,7 +100,7 @@ export const groupsApi = {
       `${GROUPS_BASE}/${groupId}/members`,
       { params }
     )
-    return response.data
+    return response
   },
 
   /**
@@ -101,7 +114,7 @@ export const groupsApi = {
       message: string
       member_id: number
     }>(`${GROUPS_BASE}/${groupId}/members`, data)
-    return response.data
+    return response
   },
 
   /**
@@ -116,7 +129,7 @@ export const groupsApi = {
       message: string
       member_id: number
     }>(`${GROUPS_BASE}/${groupId}/members/${userId}`, data)
-    return response.data
+    return response
   },
 
   /**
@@ -137,7 +150,7 @@ export const groupsApi = {
       `${GROUPS_BASE}/${groupId}/members/invite-all`,
       data
     )
-    return response.data
+    return response
   },
 
   /**
@@ -158,7 +171,7 @@ export const groupsApi = {
       `${GROUPS_BASE}/${groupId}/transfer-ownership`,
       data
     )
-    return response.data
+    return response
   },
 
   // Group Resource APIs
@@ -173,7 +186,61 @@ export const groupsApi = {
       `${GROUPS_BASE}/${groupId}/models`,
       { params }
     )
-    return response.data
+    return response
+  },
+
+  /**
+   * Get unified models available to a group
+   */
+  getGroupUnifiedModels: async (
+    groupId: number,
+    shellType?: string,
+    includeConfig: boolean = false
+  ): Promise<GroupUnifiedModelsResponse> => {
+    const params = new URLSearchParams()
+    if (shellType) params.append('shell_type', shellType)
+    if (includeConfig) params.append('include_config', 'true')
+    
+    const response = await apiClient.get<GroupUnifiedModelsResponse>(
+      `${GROUPS_BASE}/${groupId}/models/unified?${params}`
+    )
+    return response
+  },
+
+  /**
+   * Create a model in a group
+   */
+  createGroupModel: async (
+    groupId: number,
+    modelData: any
+  ): Promise<{ message: string; model: any; resource_id: number }> => {
+    const response = await apiClient.post<{ message: string; model: any; resource_id: number }>(
+      `${GROUPS_BASE}/${groupId}/models`,
+      modelData
+    )
+    return response
+  },
+
+  /**
+   * Update a model in a group
+   */
+  updateGroupModel: async (
+    groupId: number,
+    modelId: string,
+    modelData: any
+  ): Promise<{ message: string; model: any; resource_id: number }> => {
+    const response = await apiClient.put<{ message: string; model: any; resource_id: number }>(
+      `${GROUPS_BASE}/${groupId}/models/${modelId}`,
+      modelData
+    )
+    return response
+  },
+
+  /**
+   * Delete a model from a group
+   */
+  deleteGroupModel: async (groupId: number, modelId: string): Promise<void> => {
+    await apiClient.delete(`${GROUPS_BASE}/${groupId}/models/${modelId}`)
   },
 
   /**
@@ -186,7 +253,7 @@ export const groupsApi = {
     const response = await apiClient.get(`${GROUPS_BASE}/${groupId}/bots`, {
       params,
     })
-    return response.data
+    return response
   },
 
   /**
@@ -199,7 +266,60 @@ export const groupsApi = {
     const response = await apiClient.get(`${GROUPS_BASE}/${groupId}/teams`, {
       params,
     })
-    return response.data
+    return response
+  },
+
+  // Group Shell APIs
+  /**
+   * Get unified shells available to a group
+   */
+  getGroupUnifiedShells: async (
+    groupId: number,
+    includeConfig: boolean = false
+  ): Promise<{ data: any[] }> => {
+    const params = new URLSearchParams()
+    if (includeConfig) params.append('include_config', 'true')
+    
+    const response = await apiClient.get<{ data: any[] }>(
+      `${GROUPS_BASE}/${groupId}/shells/unified?${params}`
+    )
+    return response
+  },
+
+  /**
+   * Create a shell in a group
+   */
+  createGroupShell: async (
+    groupId: number,
+    shellData: any
+  ): Promise<{ message: string; shell: any; resource_id: number }> => {
+    const response = await apiClient.post<{ message: string; shell: any; resource_id: number }>(
+      `${GROUPS_BASE}/${groupId}/shells`,
+      shellData
+    )
+    return response
+  },
+
+  /**
+   * Update a shell in a group
+   */
+  updateGroupShell: async (
+    groupId: number,
+    shellId: string,
+    shellData: any
+  ): Promise<{ message: string; shell: any; resource_id: number }> => {
+    const response = await apiClient.put<{ message: string; shell: any; resource_id: number }>(
+      `${GROUPS_BASE}/${groupId}/shells/${shellId}`,
+      shellData
+    )
+    return response
+  },
+
+  /**
+   * Delete a shell from a group
+   */
+  deleteGroupShell: async (groupId: number, shellId: string): Promise<void> => {
+    await apiClient.delete(`${GROUPS_BASE}/${groupId}/shells/${shellId}`)
   },
 }
 

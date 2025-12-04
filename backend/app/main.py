@@ -123,9 +123,9 @@ def create_app():
 
                 logger.info("Executing Alembic upgrade to head...")
 
-                # Run Alembic as subprocess to avoid output buffering issues
+                # Run Alembic as Python module to avoid PATH issues
                 result = subprocess.run(
-                    ["alembic", "upgrade", "head"],
+                    [sys.executable, "-m", "alembic", "upgrade", "head"],
                     cwd=backend_dir,
                     capture_output=False,  # Let output go directly to stdout/stderr
                     text=True,
