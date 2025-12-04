@@ -763,6 +763,68 @@ title: "Implement shopping cart feature"
 title: "Implement order system"
 ```
 
+### 8. Sensitive Content Detection
+
+When creating a task through the Web interface, Wegent automatically checks your message for sensitive information before sending.
+
+#### ✅ What is Checked
+
+The system detects:
+- Passwords and API keys
+- Phone numbers
+- ID card numbers
+- Email and password combinations
+- Credit card numbers
+
+#### How it Works
+
+1. **Automatic Detection**: When you click send, the system checks your message
+2. **Warning Dialog**: If sensitive content is detected, you'll see a warning dialog
+3. **Risk Acknowledgment**: Review the detected items and check the acknowledgment box
+4. **Continue or Cancel**: Choose to proceed with sending or cancel to revise your message
+
+#### 💡 Security Recommendations
+
+```yaml
+# ❌ Avoid - Including sensitive credentials
+prompt: |
+  Please deploy to production server:
+  Server: 192.168.1.100
+  Username: admin
+  Password: MyP@ssw0rd123
+  Database: postgresql://user:password@host/db
+
+# ✅ Recommended - Use references and secure methods
+prompt: |
+  Please deploy to production server:
+  - Use credentials from environment variables
+  - Database connection: Use DB_CONNECTION_STRING env var
+  - SSH key: Use the pre-configured deployment key
+  - API tokens: Reference from secrets management system
+```
+
+#### Best Practices for Sensitive Data
+
+1. **Use Environment Variables**: Reference credentials from environment variables
+   ```
+   "Use the API_KEY environment variable for authentication"
+   ```
+
+2. **Use Placeholders**: Replace actual values with placeholders
+   ```
+   "Test with phone number: <TEST_PHONE_NUMBER>"
+   ```
+
+3. **Reference Secure Storage**: Point to secure credential storage
+   ```
+   "Use the API key from AWS Secrets Manager (secret: prod/api-key)"
+   ```
+
+4. **Provide Context, Not Credentials**: Describe what credentials are needed without including them
+   ```
+   "Configure database connection using admin credentials"
+   ```
+
 ---
 
 ## ⚠️ Common Issues
