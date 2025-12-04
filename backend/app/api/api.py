@@ -11,6 +11,7 @@ from app.api.endpoints.adapter import (
     dify,
     executors,
     models,
+    sensitive_content,
     shells,
     tasks,
     teams,
@@ -34,4 +35,7 @@ api_router.include_router(repository.router, prefix="/git", tags=["repository"])
 api_router.include_router(executors.router, prefix="/executors", tags=["executors"])
 api_router.include_router(quota.router, prefix="/quota", tags=["quota"])
 api_router.include_router(dify.router, prefix="/dify", tags=["dify"])
+api_router.include_router(
+    sensitive_content.router, prefix="/sensitive-content", tags=["sensitive-content"]
+)
 api_router.include_router(k_router)

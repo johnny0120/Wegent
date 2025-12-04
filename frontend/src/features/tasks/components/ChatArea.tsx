@@ -31,6 +31,8 @@ import { useToast } from '@/hooks/use-toast';
 import { taskApis } from '@/apis/tasks';
 import { useChatStream } from '@/hooks/useChatStream';
 import { useAttachment } from '@/hooks/useAttachment';
+import { sensitiveContentApis, SensitiveMatch } from '@/apis/sensitive-content';
+import SensitiveContentWarningDialog from '@/components/SensitiveContentWarningDialog';
 
 const SHOULD_HIDE_QUOTA_NAME_LIMIT = 18;
 // Threshold for combined team name + model name length to trigger compact quota mode
@@ -82,6 +84,12 @@ export default function ChatArea({
   // Pending attachment for optimistic UI update (Chat Shell)
   const [pendingAttachment, setPendingAttachment] =
     useState<typeof attachmentState.attachment>(null);
+
+  // Sensitive content detection state
+  const [showSensitiveWarning, setShowSensitiveWarning] = useState(false);
+  const [sensitiveMatches, setSensitiveMatches] = useState<SensitiveMatch[]>([]);
+  const [pendingMessage, setPendingMessage] = useState<string>('');
+  const [isBypassingSensitiveCheck, setIsBypassingSensitiveCheck] = useState(false);
 
   // File attachment state
   const {
@@ -368,6 +376,24 @@ export default function ChatArea({
     [isLoading, isStreaming, attachmentState.attachment, handleFileSelect, selectedTeam]
   );
 
+  // Handle sensitive content warning dialog confirmation
+  const handleSensitiveWarningConfirm = () => {
+    // Set bypass flag and trigger send
+    setIsBypassingSensitiveCheck(true);
+    setShowSensitiveWarning(false);
+    // Trigger send message in next tick to ensure state is updated
+    setTimeout(() => {
+      handleSendMessage();
+    }, 0);
+  };
+
+  // Handle sensitive content warning dialog cancellation
+  const handleSensitiveWarningCancel = () => {
+    setShowSensitiveWarning(false);
+    setPendingMessage('');
+    setSensitiveMatches([]);
+  };
+
   const handleSendMessage = async () => {
     const message = taskInputMessage.trim();
     if (!message && !shouldHideChatInput) return;
@@ -380,6 +406,26 @@ export default function ChatArea({
       });
       return;
     }
+
+    // Check for sensitive content before sending (unless bypassing)
+    if (!isBypassingSensitiveCheck && message) {
+      try {
+        const result = await sensitiveContentApis.checkSensitiveContent(message);
+        if (result.is_sensitive && result.matches.length > 0) {
+          // Show warning dialog
+          setPendingMessage(message);
+          setSensitiveMatches(result.matches);
+          setShowSensitiveWarning(true);
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to check sensitive content:', error);
+        // Continue sending if check fails (fail-safe approach)
+      }
+    }
+
+    // Reset bypass flag for next message
+    setIsBypassingSensitiveCheck(false);
 
     setIsLoading(true);
     setError('');
@@ -706,11 +752,21 @@ export default function ChatArea({
 
   // Style reference: TaskParamWrapper.tsx
   return (
-    <div
-      ref={chatAreaRef}
-      className="flex-1 flex flex-col min-h-0 w-full relative"
-      style={{ height: '100%', boxSizing: 'border-box' }}
-    >
+    <>
+      {/* Sensitive Content Warning Dialog */}
+      <SensitiveContentWarningDialog
+        open={showSensitiveWarning}
+        onOpenChange={setShowSensitiveWarning}
+        matches={sensitiveMatches}
+        onConfirm={handleSensitiveWarningConfirm}
+        onCancel={handleSensitiveWarningCancel}
+      />
+
+      <div
+        ref={chatAreaRef}
+        className="flex-1 flex flex-col min-h-0 w-full relative"
+        style={{ height: '100%', boxSizing: 'border-box' }}
+      >
       {/* Messages Area: always mounted to keep scroll container stable */}
       <div
         ref={scrollContainerRef}
@@ -1156,5 +1212,6 @@ export default function ChatArea({
         )}
       </div>
     </div>
+    </>
   );
 }
