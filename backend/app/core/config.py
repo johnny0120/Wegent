@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # Task limits
     MAX_RUNNING_TASKS_PER_USER: int = 10
 
+    # Direct chat configuration
+    MAX_CONCURRENT_CHATS: int = 50  # Maximum concurrent direct chat sessions
+    CHAT_HISTORY_EXPIRE_SECONDS: int = 7200  # Chat history expiration (2 hours)
+    CHAT_HISTORY_MAX_MESSAGES: int = 50  # Maximum messages to keep in history
+    CHAT_API_TIMEOUT_SECONDS: int = 300  # LLM API call timeout (5 minutes)
+
     # Task append expiration (hours)
     APPEND_CHAT_TASK_EXPIRE_HOURS: int = 2
     APPEND_CODE_TASK_EXPIRE_HOURS: int = 24
@@ -93,6 +99,10 @@ class Settings(BaseSettings):
     # YAML initialization configuration
     INIT_DATA_DIR: str = "/app/init_data"
     INIT_DATA_ENABLED: bool = True
+
+    # default header
+    EXECUTOR_ENV: str = '{"DEFAULT_HEADERS":{"user":"${task_data.user.name}"}}'
+
 
     class Config:
         env_file = ".env"
