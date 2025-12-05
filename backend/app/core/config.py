@@ -84,7 +84,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
 
     # Team sharing configuration
-    TEAM_SHARE_BASE_URL: str = "http://localhost:3000"
+    TEAM_SHARE_BASE_URL: str = "http://localhost:3000/chat"
+    TASK_SHARE_BASE_URL: str = "http://localhost:3000"
     TEAM_SHARE_QUERY_PARAM: str = "teamShare"
 
     # AES encryption configuration for share tokens
@@ -112,7 +113,6 @@ class Settings(BaseSettings):
     # File upload configuration
     MAX_UPLOAD_FILE_SIZE_MB: int = 50  # Maximum file size in MB
     MAX_EXTRACTED_TEXT_LENGTH: int = 1000000  # Maximum extracted text length
-
 
     class Config:
         env_file = ".env"
