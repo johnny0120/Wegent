@@ -24,11 +24,11 @@ import GroupResourceManager from '@/features/settings/components/GroupResourceMa
 import GroupManagement from '@/features/settings/components/GroupManagement';
 import GroupModelList from '@/features/settings/components/GroupModelList';
 import GroupShellList from '@/features/settings/components/GroupShellList';
-import GroupBotList from '@/features/settings/components/GroupBotList';
+import GroupTeamList from '@/features/settings/components/GroupTeamList';
 import NotificationSettings from '@/features/settings/components/NotificationSettings';
 import ModelList from '@/features/settings/components/ModelList';
 import ShellList from '@/features/settings/components/ShellList';
-import BotList from '@/features/settings/components/BotList';
+import TeamList from '@/features/settings/components/TeamList';
 import { UserProvider } from '@/features/common/UserContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { GithubStarButton } from '@/features/layout/GithubStarButton';
@@ -67,10 +67,10 @@ function DashboardContent() {
           component: ShellList
         },
         {
-          id: 'personal-bots',
+          id: 'personal-teams',
           label: '机器人',
           icon: UsersIcon,
-          component: BotList
+          component: TeamList
         }
       ]
     },
@@ -98,10 +98,10 @@ function DashboardContent() {
           component: GroupShellList
         },
         {
-          id: 'groups-bots',
+          id: 'groups-teams',
           label: '机器人',
           icon: UsersIcon,
-          component: GroupBotList
+          component: GroupTeamList
         }
       ]
     },

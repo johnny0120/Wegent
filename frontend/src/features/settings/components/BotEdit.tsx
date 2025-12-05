@@ -51,6 +51,8 @@ interface BotEditProps {
   onCancelEdit?: () => void;
   /** List of allowed agent types for filtering. If not provided, all agents are shown */
   allowedAgents?: AgentType[];
+  /** Group ID for group context (optional) */
+  groupId?: number;
 }
 const BotEdit: React.FC<BotEditProps> = ({
   bots,
@@ -64,6 +66,7 @@ const BotEdit: React.FC<BotEditProps> = ({
   onEditClick,
   onCancelEdit,
   allowedAgents,
+  groupId,
 }) => {
   const { t, i18n } = useTranslation('common');
 
@@ -261,7 +264,14 @@ const BotEdit: React.FC<BotEditProps> = ({
     const fetchShells = async () => {
       setLoadingShells(true);
       try {
-        const response = await shellApis.getUnifiedShells();
+        let response;
+        // Use group shells API if groupId is provided
+        if (groupId) {
+          const { groupsApi } = await import('@/apis/groups');
+          response = await groupsApi.getGroupUnifiedShells(groupId);
+        } else {
+          response = await shellApis.getUnifiedShells();
+        }
         // Filter shells based on allowedAgents prop (using shellType as agent type)
         let filteredShells = response.data || [];
         if (allowedAgents && allowedAgents.length > 0) {
@@ -282,7 +292,7 @@ const BotEdit: React.FC<BotEditProps> = ({
     };
 
     fetchShells();
-  }, [toast, t, allowedAgents]);
+  }, [toast, t, allowedAgents, groupId]);
   // Get skills list - only for ClaudeCode agent
   useEffect(() => {
     // Only fetch skills when agent is ClaudeCode
@@ -316,10 +326,17 @@ const BotEdit: React.FC<BotEditProps> = ({
       baseBot_shell_name: baseBot?.shell_name,
       baseBot_shell_type: baseBot?.shell_type,
       baseBot_agent_config: baseBot?.agent_config,
+      shells_length: shells.length,
     });
 
     if (!agentName) {
       setModels([]);
+      return;
+    }
+
+    // Wait for shells to be loaded before fetching models
+    if (shells.length === 0) {
+      console.log('[DEBUG] Waiting for shells to load...');
       return;
     }
 
@@ -331,8 +348,16 @@ const BotEdit: React.FC<BotEditProps> = ({
         // Use shell's shellType for model filtering, fallback to agentName for public shells
         const shellType = selectedShell?.shellType || agentName;
 
-        // Use the new unified models API which includes type information
-        const response = await modelApis.getUnifiedModels(shellType);
+        console.log('[DEBUG] Fetching models for shellType:', shellType);
+
+        // Use group models API if groupId is provided
+        let response;
+        if (groupId) {
+          const { groupsApi } = await import('@/apis/groups');
+          response = await groupsApi.getGroupUnifiedModels(groupId, shellType);
+        } else {
+          response = await modelApis.getUnifiedModels(shellType);
+        }
         console.log('[DEBUG] Models loaded:', response.data);
         setModels(response.data);
 
@@ -350,6 +375,8 @@ const BotEdit: React.FC<BotEditProps> = ({
           hasConfig,
           agentMatches,
           isPredefined,
+          baseBotShellName,
+          agentName,
           agent_config: baseBot?.agent_config,
         });
 
@@ -398,7 +425,7 @@ const BotEdit: React.FC<BotEditProps> = ({
     };
 
     fetchModels();
-  }, [agentName, shells, toast, t, baseBot]);
+  }, [agentName, shells, toast, t, groupId, baseBot]);
   // Reset base form when switching editing object
   useEffect(() => {
     setBotName(baseBot?.name || '');
@@ -436,7 +463,9 @@ const BotEdit: React.FC<BotEditProps> = ({
 
     if (isPredefined) {
       const modelName = getModelFromConfig(baseBot.agent_config);
+      const modelType = getModelTypeFromConfig(baseBot.agent_config);
       setSelectedModel(modelName);
+      setSelectedModelType(modelType);
       setSelectedProtocol('');
     } else {
       setSelectedModel('');
@@ -596,12 +625,28 @@ const BotEdit: React.FC<BotEditProps> = ({
 
       if (editingBotId && editingBotId > 0) {
         // Edit existing bot
-        const updated = await botApis.updateBot(editingBotId, botReq as UpdateBotRequest);
+        let updated;
+        if (groupId) {
+          // Use group bot API
+          const { groupsApi } = await import('@/apis/groups');
+          const response = await groupsApi.updateGroupBot(groupId, editingBotId, botReq);
+          updated = response.bot;
+        } else {
+          updated = await botApis.updateBot(editingBotId, botReq as UpdateBotRequest);
+        }
         console.log('[DEBUG] Bot updated response:', JSON.stringify(updated, null, 2));
         setBots(prev => prev.map(b => (b.id === editingBotId ? updated : b)));
       } else {
         // Create new bot
-        const created = await botApis.createBot(botReq);
+        let created;
+        if (groupId) {
+          // Use group bot API
+          const { groupsApi } = await import('@/apis/groups');
+          const response = await groupsApi.createGroupBot(groupId, botReq);
+          created = response.bot;
+        } else {
+          created = await botApis.createBot(botReq);
+        }
         console.log('[DEBUG] Bot created response:', JSON.stringify(created, null, 2));
         setBots(prev => [created, ...prev]);
       }

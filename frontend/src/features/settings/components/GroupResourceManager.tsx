@@ -6,9 +6,9 @@
 
 import { useState, useEffect } from 'react';
 import { Tab } from '@headlessui/react';
-import { 
-  CpuChipIcon, 
-  CommandLineIcon, 
+import {
+  CpuChipIcon,
+  CommandLineIcon,
   UsersIcon,
   PlusIcon,
   ChevronLeftIcon,
@@ -22,6 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import GroupEditDrawer from './GroupEditDrawer';
 import GroupModelList from './GroupModelList';
+import GroupShellList from './GroupShellList';
+import GroupTeamList from './GroupTeamList';
 
 interface GroupResourceManagerProps {
   selectedGroupId?: number | null;
@@ -221,10 +223,10 @@ export default function GroupResourceManager({
               <GroupModelList groupId={selectedGroup.id} />
             </Tab.Panel>
             <Tab.Panel className="focus:outline-none">
-              <GroupShells groupId={selectedGroup.id} />
+              <GroupShellList groupId={selectedGroup.id} />
             </Tab.Panel>
             <Tab.Panel className="focus:outline-none">
-              <GroupBots groupId={selectedGroup.id} />
+              <GroupTeamList groupId={selectedGroup.id} />
             </Tab.Panel>
           </Tab.Panels>
         </Tab.Group>
@@ -249,148 +251,6 @@ export default function GroupResourceManager({
         groupId={null} // null 表示创建新群组
         isMobile={!isDesktop}
       />
-    </div>
-  );
-}
-
-// 群组模型组件
-function GroupModels({ groupId }: { groupId: number }) {
-  const [models, setModels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadModels = async () => {
-      try {
-        setLoading(true);
-        const response = await groupsApi.listGroupModels(groupId);
-        setModels(response.items || []);
-      } catch (error) {
-        console.error('Failed to load group models:', error);
-        setModels([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadModels();
-  }, [groupId]);
-
-  if (loading) {
-    return <div className="text-center py-8 text-text-muted">加载中...</div>;
-  }
-
-  if (models.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <CpuChipIcon className="w-12 h-12 text-text-muted mx-auto mb-4" />
-        <p className="text-text-muted mb-4">该群组还没有模型</p>
-        <Button variant="outline" size="sm">
-          <PlusIcon className="w-4 h-4 mr-2" />
-          添加模型
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="text-lg font-semibold">群组模型</h4>
-        <Button variant="outline" size="sm">
-          <PlusIcon className="w-4 h-4 mr-2" />
-          添加模型
-        </Button>
-      </div>
-      
-      {models.map((model: any) => (
-        <Card key={model.id} className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h5 className="font-medium">{model.name}</h5>
-              <p className="text-sm text-text-muted">{model.namespace}</p>
-            </div>
-            <Badge variant="secondary">群组</Badge>
-          </div>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-// 群组执行器组件
-function GroupShells({ groupId }: { groupId: number }) {
-  return (
-    <div className="text-center py-8">
-      <CommandLineIcon className="w-12 h-12 text-text-muted mx-auto mb-4" />
-      <p className="text-text-muted mb-4">该群组还没有执行器</p>
-      <Button variant="outline" size="sm">
-        <PlusIcon className="w-4 h-4 mr-2" />
-        添加执行器
-      </Button>
-    </div>
-  );
-}
-
-// 群组机器人组件
-function GroupBots({ groupId }: { groupId: number }) {
-  const [bots, setBots] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadBots = async () => {
-      try {
-        setLoading(true);
-        const response = await groupsApi.listGroupBots(groupId);
-        setBots(response.items || []);
-      } catch (error) {
-        console.error('Failed to load group bots:', error);
-        setBots([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadBots();
-  }, [groupId]);
-
-  if (loading) {
-    return <div className="text-center py-8 text-text-muted">加载中...</div>;
-  }
-
-  if (bots.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <UsersIcon className="w-12 h-12 text-text-muted mx-auto mb-4" />
-        <p className="text-text-muted mb-4">该群组还没有机器人</p>
-        <Button variant="outline" size="sm">
-          <PlusIcon className="w-4 h-4 mr-2" />
-          添加机器人
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="text-lg font-semibold">群组机器人</h4>
-        <Button variant="outline" size="sm">
-          <PlusIcon className="w-4 h-4 mr-2" />
-          添加机器人
-        </Button>
-      </div>
-      
-      {bots.map((bot: any) => (
-        <Card key={bot.id} className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h5 className="font-medium">{bot.name}</h5>
-              <p className="text-sm text-text-muted">{bot.namespace}</p>
-            </div>
-            <Badge variant="secondary">群组</Badge>
-          </div>
-        </Card>
-      ))}
     </div>
   );
 }

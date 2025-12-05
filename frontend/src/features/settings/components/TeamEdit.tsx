@@ -25,6 +25,7 @@ import { createTeam, updateTeam } from '../services/teams';
 import TeamEditDrawer from './TeamEditDrawer';
 import { useTranslation } from '@/hooks/useTranslation';
 import { shellApis, UnifiedShell } from '@/apis/shells';
+import { groupsApi } from '@/apis/groups';
 
 // Import mode-specific editors
 import SoloModeEditor from './team-modes/SoloModeEditor';
@@ -41,8 +42,10 @@ interface TeamEditProps {
   setEditingTeamId: React.Dispatch<React.SetStateAction<number | null>>;
   initialTeam?: Team | null;
   bots: Bot[];
-  setBots: React.Dispatch<React.SetStateAction<Bot[]>>; // Add setBots property
+  setBots: React.Dispatch<React.SetStateAction<Bot[]>>;
   toast: ReturnType<typeof import('@/hooks/use-toast').useToast>['toast'];
+  groupId?: number | null;
+  groups?: any[];
 }
 
 export default function TeamEdit(props: TeamEditProps) {
@@ -55,6 +58,8 @@ export default function TeamEdit(props: TeamEditProps) {
     bots,
     setBots,
     toast,
+    groupId,
+    groups = [],
   } = props;
 
   const { t } = useTranslation('common');
@@ -90,19 +95,42 @@ export default function TeamEdit(props: TeamEditProps) {
 
   // Shells data for resolving custom shell runtime types
   const [shells, setShells] = useState<UnifiedShell[]>([]);
+  
+  // Load groups if not provided (only when in group context)
+  const [loadedGroups, setLoadedGroups] = useState<any[]>(groups);
+  
+  // Selected group for team creation/editing
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId || null);
+  
+  // Check if we're in group context
+  const isGroupContext = groupId !== undefined && groupId !== null;
 
-  // Load shells data on mount
+  // Load shells and groups data on mount
   useEffect(() => {
-    const fetchShells = async () => {
+    const fetchData = async () => {
       try {
-        const response = await shellApis.getUnifiedShells();
-        setShells(response.data || []);
+        // Only load groups if in group context
+        if (isGroupContext && groups.length === 0) {
+          const [shellsResponse, groupsResponse] = await Promise.all([
+            shellApis.getUnifiedShells(),
+            groupsApi.listGroups()
+          ]);
+          setShells(shellsResponse.data || []);
+          setLoadedGroups((groupsResponse as any).items || []);
+          // Auto-select first group if none selected
+          if (!selectedGroupId && (groupsResponse as any).items?.length > 0) {
+            setSelectedGroupId((groupsResponse as any).items[0].id);
+          }
+        } else {
+          const shellsResponse = await shellApis.getUnifiedShells();
+          setShells(shellsResponse.data || []);
+        }
       } catch (error) {
-        console.error('Failed to fetch shells:', error);
+        console.error('Failed to fetch data:', error);
       }
     };
-    fetchShells();
-  }, []);
+    fetchData();
+  }, [groups, selectedGroupId, isGroupContext]);
 
   // Filter bots based on current mode, using shells to resolve custom shell runtime types
   const filteredBots = useMemo(() => {
@@ -145,19 +173,14 @@ export default function TeamEdit(props: TeamEditProps) {
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-
       const target = event.target as HTMLElement | null;
       if (editingBotDrawerVisible) return;
-
-      // Ignore escape events that originate from or immediately after closing the bot drawer
       if (target?.closest('[data-team-edit-drawer="true"]')) return;
       if (lastDrawerClosedAtRef.current && Date.now() - lastDrawerClosedAtRef.current < 200) {
         return;
       }
-
       handleBack();
     };
-
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [handleBack, editingBotDrawerVisible]);
@@ -198,7 +221,6 @@ export default function TeamEdit(props: TeamEditProps) {
       coordinate: '/settings/network.png',
       collaborate: '/settings/parallel.png',
     };
-
     return {
       info: {
         title: t(titleKey),
@@ -230,7 +252,6 @@ export default function TeamEdit(props: TeamEditProps) {
   // When bots change, only update bots-related state, do not reset name and mode
   useEffect(() => {
     if (formTeam) {
-      // Filter by both available bots and mode-compatible bots
       const ids = formTeam.bots
         .filter(b => filteredBots.some((bot: Bot) => bot.id === b.bot_id))
         .map(b => String(b.bot_id));
@@ -249,7 +270,6 @@ export default function TeamEdit(props: TeamEditProps) {
     );
     const hasExistingPrompts =
       formTeam?.bots.some(bot => bot.bot_prompt && bot.bot_prompt.trim().length > 0) ?? false;
-
     return hasSelectedBots || hasUnsavedPrompts || hasExistingPrompts;
   }, [selectedBotKeys, leaderBotId, unsavedPrompts, formTeam]);
 
@@ -266,7 +286,6 @@ export default function TeamEdit(props: TeamEditProps) {
   const handleModeChange = (newMode: TeamMode) => {
     // If same mode, do nothing
     if (newMode === mode) return;
-
     // Check if confirmation is needed
     if (needsModeChangeConfirmation()) {
       setPendingMode(newMode);
@@ -455,29 +474,51 @@ export default function TeamEdit(props: TeamEditProps) {
       className={`flex flex-col flex-1 min-h-0 items-stretch bg-surface rounded-lg pt-0 pb-4 relative w-full max-w-none px-0 md:px-4 overflow-hidden ${styles.teamEditContainer}`}
     >
       {/* Top toolbar: Back + Save */}
-      <div className="w-full flex items-center justify-between mb-4 mt-4 flex-shrink-0 px-4 md:px-0">
-        <button
-          onClick={handleBack}
-          className="flex items-center text-text-muted hover:text-text-primary text-base"
-          title={t('common.back')}
-        >
-          <svg
-            width="24"
-            height="24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className="mr-1"
+      {/* Top toolbar: Back + Save */}
+      <div className="w-full flex flex-col gap-4 mb-4 mt-4 flex-shrink-0 px-4 md:px-0">
+        {isGroupContext && loadedGroups.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-2">
+              目标群组
+            </label>
+            <select
+              value={selectedGroupId || ''}
+              onChange={(e) => setSelectedGroupId(Number(e.target.value) || null)}
+              className="w-full px-3 py-2 border border-border rounded-md bg-base text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option value="">请选择群组</option>
+              {loadedGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={handleBack}
+            className="flex items-center text-text-muted hover:text-text-primary text-base"
+            title={t('common.back')}
           >
-            <path d="M15 6l-6 6 6 6" />
-          </svg>
-          {t('common.back')}
-        </button>
+            <svg
+              width="24"
+              height="24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="mr-1"
+            >
+              <path d="M15 6l-6 6 6 6" />
+            </svg>
+            {t('common.back')}
+          </button>
 
-        <Button onClick={handleSave} disabled={saving}>
-          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {saving ? (editingTeam ? t('actions.saving') : t('actions.creating')) : t('actions.save')}
-        </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {saving ? (editingTeam ? t('actions.saving') : t('actions.creating')) : t('actions.save')}
+          </Button>
+        </div>
       </div>
 
       {/* Two-column layout: Left (Name, Mode, Description Image), Right (LeaderBot, Bots Transfer) */}

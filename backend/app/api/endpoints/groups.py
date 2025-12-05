@@ -241,6 +241,53 @@ async def list_group_models(
     }
 
 
+@router.get("/{group_id}/bots/{bot_id}")
+async def get_group_bot(
+    group_id: int,
+    bot_id: int,
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """Get a bot detail in the specified group"""
+    # Check view permission
+    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No permission to view resources in this group"
+        )
+    
+    from app.models.kind import Kind
+    
+    # Find the bot in this group
+    bot = (
+        db.query(Kind)
+        .filter(
+            Kind.id == bot_id,
+            Kind.group_id == group_id,
+            Kind.kind == "Bot",
+            Kind.is_active == True,
+        )
+        .first()
+    )
+    
+    if not bot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Bot with id '{bot_id}' not found in this group"
+        )
+    
+    # Get bot components directly for group context
+    from app.services.adapters import bot_kinds_service
+    ghost, shell, model = bot_kinds_service._get_bot_components(db, bot, bot.user_id)
+    
+    # Convert to bot dict with proper context
+    bot_dict = bot_kinds_service._convert_to_bot_dict(bot, ghost, shell, model)
+    
+    return bot_dict
+
+
 @router.get("/{group_id}/bots")
 async def list_group_bots(
     group_id: int,
@@ -260,6 +307,7 @@ async def list_group_bots(
         )
 
     from app.models.kind import Kind
+    from app.services.adapters import bot_kinds_service
 
     # Query bots in this group
     query = db.query(Kind).filter(
@@ -271,20 +319,84 @@ async def list_group_bots(
     total = query.count()
     bots = query.offset(skip).limit(limit).all()
 
+    # Convert to full bot dicts with components
+    bot_dicts = []
+    for bot in bots:
+        try:
+            bot_dict = bot_kinds_service.get_by_id_and_user(db, bot_id=bot.id, user_id=bot.user_id)
+            bot_dicts.append(bot_dict)
+        except Exception as e:
+            logger.error(f"Error converting bot {bot.id}: {str(e)}")
+            continue
+
     return {
         "total": total,
-        "items": [
-            {
-                "id": b.id,
-                "name": b.name,
-                "namespace": b.namespace,
-                "json": b.json,
-                "created_at": b.created_at,
-                "updated_at": b.updated_at,
-            }
-            for b in bots
-        ],
+        "items": bot_dicts,
     }
+
+
+@router.post("/{group_id}/bots", status_code=status.HTTP_201_CREATED)
+async def create_group_bot(
+    group_id: int,
+    bot_data: Dict[str, Any],
+    current_user: User = Depends(security.get_current_user),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Create a new bot in the specified group (Developer+ permission required)
+    """
+    try:
+        bot = group_service.create_group_bot(group_id, current_user.id, bot_data)
+        logger.info(
+            f"Created group Bot resource: name='{bot['name']}', "
+            f"namespace='{bot.get('namespace', 'default')}', group_id={group_id}, "
+            f"user_id={current_user.id}, resource_id={bot['id']}"
+        )
+        return {
+            "message": "Group bot created successfully",
+            "bot": bot,  # Return the complete bot dict from service
+            "resource_id": bot["id"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating group bot: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create group bot"
+        )
+
+
+@router.put("/{group_id}/bots/{bot_id}", status_code=status.HTTP_200_OK)
+async def update_group_bot(
+    group_id: int,
+    bot_id: int,
+    bot_data: Dict[str, Any],
+    current_user: User = Depends(security.get_current_user),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """
+    Update a bot in the specified group (Developer+ permission required)
+    """
+    try:
+        bot = group_service.update_group_bot(group_id, current_user.id, bot_id, bot_data)
+        logger.info(
+            f"Updated group Bot resource: id='{bot_id}', "
+            f"group_id={group_id}, user_id={current_user.id}, resource_id={bot['id']}"
+        )
+        return {
+            "message": "Group bot updated successfully",
+            "bot": bot,  # Return the complete bot dict from service
+            "resource_id": bot["id"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating group bot: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update group bot"
+        )
 
 
 @router.get("/{group_id}/teams")

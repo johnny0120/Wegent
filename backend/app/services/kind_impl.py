@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundException
 from app.models.kind import Kind
-from app.models.public_shell import PublicShell
 from app.models.subtask import Subtask
 from app.schemas.kind import Bot, Model, Task, Team
 from app.services.adapters.task_kinds import task_kinds_service
@@ -153,13 +152,15 @@ class BotKindService(KindBaseService):
             .first()
         )
 
-        # If not found in user's shells, try to find in public shells
+        # If not found in user's shells, try to find in public shells (user_id=0)
         if not shell:
             public_shell = (
-                db.query(PublicShell)
+                db.query(Kind)
                 .filter(
-                    PublicShell.name == shell_name,
-                    PublicShell.is_active == True,
+                    Kind.user_id == 0,
+                    Kind.kind == "Shell",
+                    Kind.name == shell_name,
+                    Kind.is_active == True,
                 )
                 .first()
             )
@@ -206,12 +207,14 @@ class BotKindService(KindBaseService):
         if shell:
             return shell.json
 
-        # If not found in user's shells, try to find in public shells
+        # If not found in user's shells, try to find in public shells (user_id=0)
         public_shell = (
-            db.query(PublicShell)
+            db.query(Kind)
             .filter(
-                PublicShell.name == name,
-                PublicShell.is_active == True,
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.name == name,
+                Kind.is_active == True,
             )
             .first()
         )

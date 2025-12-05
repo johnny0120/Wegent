@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Weibo, Inc.
+# SPDX-FileCopyrightText: 2025 SECRET, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -7,22 +7,21 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.public_shell import PublicShell
+from app.models.kind import Kind
 from app.models.user import User
 from app.schemas.agent import AgentCreate, AgentUpdate
 from app.schemas.kind import Shell
 from app.services.base import BaseService
 
-
 class AgentAdapter:
     """
-    Adapter to convert PublicShell to Agent-like object for API compatibility
+    Adapter to convert Kind (public shell) to Agent-like object for API compatibility
     """
 
     @staticmethod
-    def to_agent_dict(public_shell: PublicShell) -> Dict[str, Any]:
+    def to_agent_dict(public_shell: Kind) -> Dict[str, Any]:
         """
-        Convert PublicShell to Agent-like dictionary
+        Convert Kind (public shell) to Agent-like dictionary
         """
         # Extract supportModel from json.spec.supportModel and convert to mode_filter
         mode_filter = []
@@ -51,9 +50,9 @@ class MockAgent:
             setattr(self, key, value)
 
 
-class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
+class PublicShellService(BaseService[Kind, AgentCreate, AgentUpdate]):
     """
-    Public Shell service class - adapter for public_shells table
+    Public Shell service class - adapter for kinds table (user_id=0)
     """
 
     def create_agent(
@@ -62,10 +61,16 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         """
         Create a Public Shell entry
         """
-        # Ensure unique name in default namespace
+        # Ensure unique name in default namespace (check in kinds table with user_id=0)
         existed = (
-            db.query(PublicShell)
-            .filter(PublicShell.name == obj_in.name, PublicShell.namespace == "default")
+            db.query(Kind)
+            .filter(
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.name == obj_in.name,
+                Kind.namespace == "default",
+                Kind.is_active == True,
+            )
             .first()
         )
         if existed:
@@ -87,7 +92,9 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
             "apiVersion": "agent.wecode.io/v1",
         }
 
-        db_obj = PublicShell(
+        db_obj = Kind(
+            user_id=0,  # Public shells use user_id=0
+            kind="Shell",
             name=obj_in.name,
             namespace="default",
             json=json_data,
@@ -105,9 +112,13 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         Get public shells (paginated)
         """
         public_shells = (
-            db.query(PublicShell)
-            .filter(PublicShell.is_active == True)  # noqa: E712
-            .order_by(PublicShell.created_at.desc())
+            db.query(Kind)
+            .filter(
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.is_active == True,
+            )  # noqa: E712
+            .order_by(Kind.created_at.desc())
             .offset(skip)
             .limit(limit)
             .all()
@@ -119,7 +130,13 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         Count all active public shells
         """
         return (
-            db.query(PublicShell).filter(PublicShell.is_active == True).count()
+            db.query(Kind)
+            .filter(
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.is_active == True,
+            )
+            .count()
         )  # noqa: E712
 
     def get_by_id(
@@ -129,10 +146,13 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         Get public shell by ID
         """
         shell = (
-            db.query(PublicShell)
+            db.query(Kind)
             .filter(
-                PublicShell.id == agent_id, PublicShell.is_active == True  # noqa: E712
-            )
+                Kind.id == agent_id,
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.is_active == True,
+            )  # noqa: E712
             .first()
         )
         if not shell:
@@ -145,12 +165,15 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         """
         Update public shell by ID
         """
-        # Get the actual PublicShell object for update
+        # Get the actual Kind object for update
         shell = (
-            db.query(PublicShell)
+            db.query(Kind)
             .filter(
-                PublicShell.id == agent_id, PublicShell.is_active == True  # noqa: E712
-            )
+                Kind.id == agent_id,
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.is_active == True,
+            )  # noqa: E712
             .first()
         )
         if not shell:
@@ -161,10 +184,13 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         # If updating name, ensure uniqueness
         if "name" in update_data and update_data["name"] != shell.name:
             existed = (
-                db.query(PublicShell)
+                db.query(Kind)
                 .filter(
-                    PublicShell.name == update_data["name"],
-                    PublicShell.namespace == "default",
+                    Kind.user_id == 0,
+                    Kind.kind == "Shell",
+                    Kind.name == update_data["name"],
+                    Kind.namespace == "default",
+                    Kind.is_active == True,
                 )
                 .first()
             )
@@ -205,12 +231,15 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         """
         Delete public shell
         """
-        # Get the actual PublicShell object for deletion
+        # Get the actual Kind object for deletion
         shell = (
-            db.query(PublicShell)
+            db.query(Kind)
             .filter(
-                PublicShell.id == agent_id, PublicShell.is_active == True  # noqa: E712
-            )
+                Kind.id == agent_id,
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.is_active == True,
+            )  # noqa: E712
             .first()
         )
         if not shell:
@@ -219,4 +248,4 @@ class PublicShellService(BaseService[PublicShell, AgentCreate, AgentUpdate]):
         db.commit()
 
 
-public_shell_service = PublicShellService(PublicShell)
+public_shell_service = PublicShellService(Kind)

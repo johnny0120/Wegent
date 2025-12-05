@@ -69,15 +69,15 @@ def _get_shell_type(db: Session, bot: Kind, user_id: int) -> str:
         .first()
     )
     
-    # If not found, check public shells
+    # If not found, check public shells (user_id=0 in kinds table)
     if not shell:
-        from app.models.public_shell import PublicShell
-        
         public_shell = (
-            db.query(PublicShell)
+            db.query(Kind)
             .filter(
-                PublicShell.name == bot_crd.spec.shellRef.name,
-                PublicShell.is_active == True,
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.name == bot_crd.spec.shellRef.name,
+                Kind.is_active == True,
             )
             .first()
         )

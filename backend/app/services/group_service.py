@@ -761,3 +761,116 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
 
         self.db.commit()
         return count
+
+    def create_group_bot(
+        self, group_id: int, user_id: int, bot_data: dict
+    ) -> dict:
+        """Create a bot in a group with proper CRD structure"""
+        from app.schemas.bot import BotCreate
+        from app.services.adapters import bot_kinds_service
+        
+        # Check create permission
+        has_perm, _ = self.check_permission(group_id, user_id, "create")
+        if not has_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No permission to create resources in this group"
+            )
+        
+        # Extract bot name
+        bot_name = bot_data.get("name")
+        if not bot_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bot name is required"
+            )
+        
+        # Check if bot already exists
+        existing = (
+            self.db.query(Kind)
+            .filter(
+                Kind.group_id == group_id,
+                Kind.kind == "Bot",
+                Kind.namespace == "default",
+                Kind.name == bot_name,
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Bot '{bot_name}' already exists in this group"
+            )
+        
+        # Convert flat bot_data to BotCreate schema
+        bot_create = BotCreate(**bot_data)
+        
+        # Use bot_kinds_service to create bot with proper CRD structure
+        bot_dict = bot_kinds_service.create_with_user(
+            db=self.db, obj_in=bot_create, user_id=user_id
+        )
+        
+        # Update the created bot to belong to the group
+        bot_kind = (
+            self.db.query(Kind)
+            .filter(
+                Kind.id == bot_dict["id"],
+                Kind.user_id == user_id,
+                Kind.kind == "Bot",
+            )
+            .first()
+        )
+        
+        if bot_kind:
+            bot_kind.group_id = group_id
+            self.db.commit()
+            self.db.refresh(bot_kind)
+        
+        # Return the complete bot dict with all fields including agent_config
+        return bot_dict
+
+    def update_group_bot(
+        self, group_id: int, user_id: int, bot_id: int, bot_data: dict
+    ) -> dict:
+        """Update a bot in a group with proper CRD structure"""
+        from app.schemas.bot import BotUpdate
+        from app.services.adapters import bot_kinds_service
+        
+        # Check edit permission
+        has_perm, _ = self.check_permission(group_id, user_id, "edit")
+        if not has_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No permission to edit resources in this group"
+            )
+        
+        # Find existing bot
+        existing = (
+            self.db.query(Kind)
+            .filter(
+                Kind.id == bot_id,
+                Kind.group_id == group_id,
+                Kind.kind == "Bot",
+                Kind.is_active == True,
+            )
+            .first()
+        )
+        
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Bot with id '{bot_id}' not found in this group"
+            )
+        
+        # Convert flat bot_data to BotUpdate schema
+        bot_update = BotUpdate(**bot_data)
+        
+        # Use bot_kinds_service to update bot with proper CRD structure
+        bot_dict = bot_kinds_service.update_with_user(
+            db=self.db, bot_id=bot_id, obj_in=bot_update, user_id=existing.user_id
+        )
+        
+        # Return the complete bot dict with all fields including agent_config
+        return bot_dict

@@ -866,14 +866,14 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                     shell_crd = Shell.model_validate(shell.json)
                     shell_type = shell_crd.spec.shellType
                 else:
-                    # If not found, check public shells
-                    from app.models.public_shell import PublicShell
-                    
+                    # If not found, check public shells (user_id=0 in kinds table)
                     public_shell = (
-                        db.query(PublicShell)
+                        db.query(Kind)
                         .filter(
-                            PublicShell.name == bot_crd.spec.shellRef.name,
-                            PublicShell.is_active == True,
+                            Kind.user_id == 0,
+                            Kind.kind == "Shell",
+                            Kind.name == bot_crd.spec.shellRef.name,
+                            Kind.is_active == True,
                         )
                         .first()
                     )

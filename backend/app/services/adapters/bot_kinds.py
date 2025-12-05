@@ -251,7 +251,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
 
         logger = logging.getLogger(__name__)
 
-        # Check duplicate bot name under the same user (only active bots)
+        # Check duplicate bot name under the same user (only active bots, excluding group bots)
         existing = (
             db.query(Kind)
             .filter(
@@ -260,6 +260,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 Kind.name == obj_in.name,
                 Kind.namespace == "default",
                 Kind.is_active == True,
+                Kind.group_id.is_(None),  # Exclude group bots
             )
             .first()
         )
@@ -411,12 +412,17 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         self, db: Session, *, user_id: int, skip: int = 0, limit: int = 100
     ) -> List[Dict[str, Any]]:
         """
-        Get user's Bot list (only active bots)
+        Get user's Bot list (only active bots, excluding group bots)
         Optimization: avoid N+1 queries by batch-fetching Ghost/Shell/Model components to significantly reduce database round trips.
         """
         bots = (
             db.query(Kind)
-            .filter(Kind.user_id == user_id, Kind.kind == "Bot", Kind.is_active == True)
+            .filter(
+                Kind.user_id == user_id,
+                Kind.kind == "Bot",
+                Kind.is_active == True,
+                Kind.group_id.is_(None),  # Exclude group bots
+            )
             .order_by(Kind.created_at.desc())
             .offset(skip)
             .limit(limit)
@@ -518,7 +524,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         update_data = obj_in.model_dump(exclude_unset=True)
         logger.info(f"[DEBUG] update_with_user: update_data={update_data}")
 
-        # If updating name, ensure uniqueness under the same user (only active bots), excluding current bot
+        # If updating name, ensure uniqueness under the same user (only active bots, excluding group bots), excluding current bot
         if "name" in update_data:
             new_name = update_data["name"]
             if new_name != bot.name:
@@ -530,6 +536,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                         Kind.name == new_name,
                         Kind.namespace == "default",
                         Kind.is_active == True,
+                        Kind.group_id.is_(None),  # Exclude group bots
                         Kind.id != bot.id,
                     )
                     .first()
@@ -858,18 +865,23 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
 
     def count_user_bots(self, db: Session, *, user_id: int) -> int:
         """
-        Count user's active bots
+        Count user's active bots (excluding group bots)
         """
         return (
             db.query(Kind)
-            .filter(Kind.user_id == user_id, Kind.kind == "Bot", Kind.is_active == True)
+            .filter(
+                Kind.user_id == user_id,
+                Kind.kind == "Bot",
+                Kind.is_active == True,
+                Kind.group_id.is_(None),  # Exclude group bots
+            )
             .count()
         )
 
     def _get_bot_components(self, db: Session, bot: Kind, user_id: int):
         """
         Get Ghost, Shell, Model components for a bot.
-        Model can be from kinds table (both private and public models).
+        Model can be from kinds table (both private, group, and public models).
         """
         import logging
 
@@ -881,7 +893,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             bot_crd.spec.modelRef.namespace if bot_crd.spec.modelRef else None
         )
         logger.info(
-            f"[DEBUG] _get_bot_components: bot.name={bot.name}, modelRef.name={model_ref_name}, modelRef.namespace={model_ref_namespace}"
+            f"[DEBUG] _get_bot_components: bot.name={bot.name}, bot.group_id={bot.group_id}, modelRef.name={model_ref_name}, modelRef.namespace={model_ref_namespace}"
         )
 
         # Get ghost
@@ -906,13 +918,31 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             f"shell found={shell is not None}, "
             f"shell type={type(shell).__name__ if shell else 'None'}"
         )
-        # Get model - try private models first, then public models
+        
+        # Get model - try group models first (if bot belongs to a group), then private models, then public models
         # modelRef is optional, only get if it exists
         model = None
         if bot_crd.spec.modelRef:
-            model = self._get_model_by_name(
-                db, bot_crd.spec.modelRef.name, bot_crd.spec.modelRef.namespace, user_id
-            )
+            # If bot belongs to a group, try to find model in that group first
+            if bot.group_id:
+                model = (
+                    db.query(Kind)
+                    .filter(
+                        Kind.group_id == bot.group_id,
+                        Kind.kind == "Model",
+                        Kind.name == bot_crd.spec.modelRef.name,
+                        Kind.namespace == bot_crd.spec.modelRef.namespace,
+                        Kind.is_active == True,
+                    )
+                    .first()
+                )
+                logger.info(f"[DEBUG] _get_bot_components: Searched in group {bot.group_id}, model found={model is not None}")
+            
+            # If not found in group (or bot doesn't belong to a group), try user's private models and public models
+            if not model:
+                model = self._get_model_by_name(
+                    db, bot_crd.spec.modelRef.name, bot_crd.spec.modelRef.namespace, user_id
+                )
 
         logger.info(
             f"[DEBUG] _get_bot_components: ghost={ghost is not None}, shell={shell is not None}, model={model is not None}"

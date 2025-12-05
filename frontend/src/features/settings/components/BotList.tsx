@@ -27,17 +27,28 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { groupsApi } from '@/apis/groups';
 
-export default function BotList() {
+interface BotListProps {
+  groupId?: number | null;
+  groups?: any[];
+}
+
+export default function BotList({ groupId, groups = [] }: BotListProps = {}) {
   const { t } = useTranslation('common');
   const { toast } = useToast();
   const [bots, setBots] = useState<Bot[]>([]);
+  const [loadedGroups, setLoadedGroups] = useState<any[]>(groups);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId || null);
   const [isLoading, setIsLoading] = useState(true);
   const [editingBotId, setEditingBotId] = useState<number | null>(null);
   const [cloningBot, setCloningBot] = useState<Bot | null>(null);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [botToDelete, setBotToDelete] = useState<number | null>(null);
   const isEditing = editingBotId !== null;
+  
+  // Check if we're in group context
+  const isGroupContext = groupId !== undefined && groupId !== null;
 
   const setBotsSorted = useCallback<React.Dispatch<React.SetStateAction<Bot[]>>>(
     updater => {
@@ -50,13 +61,48 @@ export default function BotList() {
     [setBots]
   );
 
+  // Load groups on mount (only when in group context)
+  useEffect(() => {
+    async function loadGroups() {
+      if (isGroupContext && groups.length === 0) {
+        try {
+          const groupsResponse = await groupsApi.listGroups();
+          setLoadedGroups((groupsResponse as any).items || []);
+          // Auto-select first group if none selected
+          if (!selectedGroupId && (groupsResponse as any).items?.length > 0) {
+            setSelectedGroupId((groupsResponse as any).items[0].id);
+          }
+        } catch (error) {
+          console.error('Failed to load groups:', error);
+        }
+      }
+    }
+    loadGroups();
+  }, [groups, selectedGroupId, isGroupContext]);
+
+  // Load bots when selectedGroupId changes (for group context) or on mount (for personal context)
   useEffect(() => {
     async function loadBots() {
+      // In group context, require selectedGroupId
+      if (isGroupContext && !selectedGroupId) {
+        setBots([]);
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       try {
-        const botsData = await fetchBotsList();
-        setBotsSorted(botsData);
-      } catch {
+        if (isGroupContext && selectedGroupId) {
+          // Load group bots
+          const response = await groupsApi.listGroupBots(selectedGroupId);
+          setBotsSorted((response as any).items || []);
+        } else {
+          // Load personal bots
+          const bots = await fetchBotsList();
+          setBotsSorted(bots);
+        }
+      } catch (error) {
+        console.error('Failed to load bots:', error);
         toast({
           variant: 'destructive',
           title: t('bots.loading'),
@@ -66,7 +112,7 @@ export default function BotList() {
       }
     }
     loadBots();
-  }, [toast, setBotsSorted, t]);
+  }, [selectedGroupId, isGroupContext, toast, setBotsSorted, t]);
 
   const handleCreateBot = () => {
     setCloningBot(null);
@@ -118,6 +164,25 @@ export default function BotList() {
   return (
     <>
       <div className="space-y-3">
+        {isGroupContext && loadedGroups.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-2">
+              目标群组
+            </label>
+            <select
+              value={selectedGroupId || ''}
+              onChange={(e) => setSelectedGroupId(Number(e.target.value) || null)}
+              className="w-full px-3 py-2 border border-border rounded-md bg-base text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option value="">请选择群组</option>
+              {loadedGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <h2 className="text-xl font-semibold text-text-primary mb-1">{t('bots.title')}</h2>
           <p className="text-sm text-text-muted mb-1">{t('bots.description')}</p>
@@ -142,6 +207,7 @@ export default function BotList() {
                   cloningBot={cloningBot}
                   onClose={handleCloseEditor}
                   toast={toast}
+                  groupId={selectedGroupId || undefined}
                 />
               ) : (
                 <>

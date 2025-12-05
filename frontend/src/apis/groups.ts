@@ -244,6 +244,19 @@ export const groupsApi = {
   },
 
   /**
+   * Get teams in group
+   */
+  listGroupTeams: async (
+    groupId: number,
+    params?: { skip?: number; limit?: number }
+  ) => {
+    const response = await apiClient.get(`${GROUPS_BASE}/${groupId}/teams`, {
+      params,
+    })
+    return response
+  },
+
+  /**
    * Get bots in group
    */
   listGroupBots: async (
@@ -254,6 +267,66 @@ export const groupsApi = {
       params,
     })
     return response
+  },
+
+  /**
+   * Get a bot detail in a group
+   */
+  getGroupBot: async (groupId: number, botId: number): Promise<any> => {
+    const response = await apiClient.get(`${GROUPS_BASE}/${groupId}/bots/${botId}`)
+    return response
+  },
+
+  /**
+   * Get unified bots available to a group (public + group bots)
+   */
+  getGroupUnifiedBots: async (
+    groupId: number,
+    includeConfig: boolean = false
+  ): Promise<{ data: any[] }> => {
+    const params = new URLSearchParams()
+    if (includeConfig) params.append('include_config', 'true')
+    
+    const response = await apiClient.get<{ data: any[] }>(
+      `${GROUPS_BASE}/${groupId}/bots/unified?${params}`
+    )
+    return response
+  },
+
+  /**
+   * Create a bot in a group
+   */
+  createGroupBot: async (
+    groupId: number,
+    botData: any
+  ): Promise<{ message: string; bot: any; resource_id: number }> => {
+    const response = await apiClient.post<{ message: string; bot: any; resource_id: number }>(
+      `${GROUPS_BASE}/${groupId}/bots`,
+      botData
+    )
+    return response
+  },
+
+  /**
+   * Update a bot in a group
+   */
+  updateGroupBot: async (
+    groupId: number,
+    botId: number,
+    botData: any
+  ): Promise<{ message: string; bot: any; resource_id: number }> => {
+    const response = await apiClient.put<{ message: string; bot: any; resource_id: number }>(
+      `${GROUPS_BASE}/${groupId}/bots/${botId}`,
+      botData
+    )
+    return response
+  },
+
+  /**
+   * Delete a bot from a group
+   */
+  deleteGroupBot: async (groupId: number, botId: number): Promise<void> => {
+    await apiClient.delete(`${GROUPS_BASE}/${groupId}/bots/${botId}`)
   },
 
   /**
