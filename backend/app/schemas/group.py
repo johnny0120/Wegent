@@ -24,7 +24,8 @@ class GroupRole(str, Enum):
 class GroupBase(BaseModel):
     """Base group schema"""
     name: str = Field(..., min_length=1, max_length=100)
-    parent_id: Optional[int] = None
+    display_name: Optional[str] = Field(None, max_length=100)
+    parent_name: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -35,7 +36,7 @@ class GroupCreate(GroupBase):
 
 class GroupUpdate(BaseModel):
     """Schema for updating group information"""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    display_name: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
 
 
@@ -56,7 +57,8 @@ class GroupListItem(BaseModel):
     """Schema for group list item"""
     id: int
     name: str
-    parent_id: Optional[int]
+    display_name: Optional[str]
+    parent_name: Optional[str]
     description: Optional[str]
     member_count: int
     resource_count: int
@@ -105,7 +107,7 @@ class GroupMemberUpdate(BaseModel):
 class GroupMemberInDB(GroupMemberBase):
     """Database group member schema"""
     id: int
-    group_id: int
+    group_name: str
     invited_by_user_id: Optional[int]
     is_active: bool
     created_at: datetime
@@ -157,7 +159,6 @@ class ResourceSource(str, Enum):
 class ResourceWithSource(BaseModel):
     """Base schema for resources with source information"""
     source: ResourceSource
-    group_id: Optional[int] = None
     group_name: Optional[str] = None
 
     class Config:

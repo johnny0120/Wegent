@@ -555,20 +555,23 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 ### Database Schema
 
 **Groups Table:**
-- `id`, `name`, `parent_name` (nullable), `owner_user_id`, `description`
+- `id`, `name` (unique), `display_name`, `parent_name` (nullable), `owner_user_id`, `description`
 - `visibility` (reserved for future), `is_active`, timestamps
-- `name` field is unique, child groups use `parent_name` to reference parent group name
+- `name` field is unique and immutable, used as primary identifier in relationships
+- `display_name` can be modified to show user-friendly names
+- `parent_name` references parent group's name for hierarchical structure
 
 **Group Members Table:**
-- `id`, `group_id`, `user_id`, `role` (Owner/Maintainer/Developer/Reporter)
+- `id`, `group_name` (references groups.name), `user_id`, `role` (Owner/Maintainer/Developer/Reporter)
 - `invited_by_user_id`, `is_active`, timestamps
-- UNIQUE constraint on (group_id, user_id)
+- UNIQUE constraint on (group_name, user_id)
 
-**Kinds Table Enhancement:**
-- Uses `namespace` field to associate resources with groups instead of `group_id`
-- Public resources use `user_id=0`, `namespace=default`
-- Personal resources use `user_id=xxx`, `namespace=default`
-- Group resources use `user_id=xxx`, `namespace!=default` (user_id represents who created the group resource)
+**Kinds Table (Resource Association):**
+- Resources are associated with groups via the `namespace` field:
+  - Public resources: `user_id=0`, `namespace='default'`
+  - Personal resources: `user_id=xxx`, `namespace='default'`
+  - Group resources: `user_id=xxx` (creator), `namespace=group_name`
+- The `group_id` field has been removed - namespace directly stores the group name
 
 ### Key APIs
 
@@ -606,8 +609,9 @@ import { GroupRole } from '@/types/group'
 // Create a group
 const group = await groupsApi.createGroup({
   name: 'AI Team',
+  display_name: 'AI Development Team',
   description: 'AI development team',
-  parent_id: null
+  parent_name: null
 })
 
 // Invite a member
@@ -623,6 +627,8 @@ await groupsApi.inviteMember(group.id, {
 - **Owner Restrictions:** Group Owner cannot leave without transferring ownership first
 - **Permission Inheritance:** Parent group members automatically have access to child groups with inherited permissions
 - **Public Resources:** All resources from `public_models` and `public_shells` tables have been migrated to `kinds` table with `user_id=0`
+- **Group Name Immutability:** Group `name` field cannot be changed after creation - use `display_name` for user-facing modifications
+- **API Compatibility:** API endpoints continue to use `group_id` in URLs for backward compatibility, but internally convert to `group_name` for service layer operations
 
 **See also:** `docs/en/guides/user/groups.md` for detailed user guide
 

@@ -20,8 +20,9 @@ class Group(Base):
     __tablename__ = "groups"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    parent_id = Column(Integer, ForeignKey("groups.id"), nullable=True, index=True)
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    display_name = Column(String(100), nullable=True)
+    parent_name = Column(String(100), nullable=True, index=True)
     owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     visibility = Column(String(20), default="private")  # Reserved for future use
     description = Column(Text, nullable=True)
@@ -30,10 +31,8 @@ class Group(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # Relationships
-    parent = relationship("Group", remote_side=[id], backref="children")
     owner = relationship("User", foreign_keys=[owner_user_id])
     members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
-    kinds = relationship("Kind", back_populates="group")
 
     __table_args__ = (
         {
