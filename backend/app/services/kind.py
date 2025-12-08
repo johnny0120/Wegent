@@ -20,6 +20,23 @@ class KindService:
         service = KindServiceFactory.get_service(kind)
         return service.list_resources(user_id, namespace)
 
+    def list_all_accessible_resources(
+        self, user_id: int, kind: str, include_public: bool = True, group_names: Optional[List[str]] = None
+    ) -> List[Kind]:
+        """List all resources accessible to a user
+
+        Args:
+            user_id: User ID
+            kind: Resource kind
+            include_public: Include public resources
+            group_names: List of group names the user is a member of
+
+        Returns:
+            List of accessible Kind resources
+        """
+        service = KindServiceFactory.get_service(kind)
+        return service.list_all_accessible_resources(user_id, include_public, group_names)
+
     def get_resource(
         self, user_id: int, kind: str, namespace: str, name: str
     ) -> Optional[Kind]:

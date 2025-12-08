@@ -16,6 +16,7 @@ from app.api.endpoints.adapter import (
     teams,
 )
 from app.api.endpoints.kind import k_router
+from app.api.groups import router as groups_router
 from app.api.router import api_router
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -36,4 +37,5 @@ api_router.include_router(repository.router, prefix="/git", tags=["repository"])
 api_router.include_router(executors.router, prefix="/executors", tags=["executors"])
 api_router.include_router(quota.router, prefix="/quota", tags=["quota"])
 api_router.include_router(dify.router, prefix="/dify", tags=["dify"])
+api_router.include_router(groups_router, tags=["groups"])
 api_router.include_router(k_router)

@@ -34,13 +34,29 @@ class KindBaseService(ABC):
     def _build_filters(
         self, user_id: int, namespace: str, name: Optional[str] = None
     ) -> List:
-        """Build database query filters"""
+        """Build database query filters
+
+        Resource visibility rules:
+        - Public resources: user_id=0, namespace=default
+        - Personal resources: user_id=xxx, namespace=default
+        - Group resources: user_id=xxx, namespace=group_name (namespace != default)
+        """
         filters = [
-            Kind.user_id == user_id,
             Kind.kind == self.kind,
-            Kind.namespace == namespace,
             Kind.is_active == True,
         ]
+
+        # Add user and namespace filters
+        if namespace == "default":
+            # For default namespace, return user's personal resources
+            filters.append(Kind.user_id == user_id)
+            filters.append(Kind.namespace == namespace)
+        else:
+            # For non-default namespace (group resources)
+            # Check if user is member of the group
+            filters.append(Kind.namespace == namespace)
+            # Note: Group membership check should be done at a higher level
+            # Here we just filter by namespace
 
         if name:
             filters.append(Kind.name == name)
@@ -52,6 +68,55 @@ class KindBaseService(ABC):
         with self.get_db() as db:
             filters = self._build_filters(user_id, namespace)
             return db.query(Kind).filter(and_(*filters)).all()
+
+    def list_all_accessible_resources(self, user_id: int, include_public: bool = True, group_names: Optional[List[str]] = None) -> List[Kind]:
+        """List all resources accessible to a user
+
+        Args:
+            user_id: User ID
+            include_public: Include public resources (user_id=0, namespace=default)
+            group_names: List of group names the user is a member of
+
+        Returns:
+            List of accessible Kind resources
+        """
+        with self.get_db() as db:
+            from sqlalchemy import or_
+
+            conditions = []
+
+            # Personal resources (user_id=xxx, namespace=default)
+            conditions.append(
+                and_(
+                    Kind.user_id == user_id,
+                    Kind.namespace == "default",
+                    Kind.kind == self.kind,
+                    Kind.is_active == True,
+                )
+            )
+
+            # Public resources (user_id=0, namespace=default)
+            if include_public:
+                conditions.append(
+                    and_(
+                        Kind.user_id == 0,
+                        Kind.namespace == "default",
+                        Kind.kind == self.kind,
+                        Kind.is_active == True,
+                    )
+                )
+
+            # Group resources (user_id=creator_id, namespace=group_name)
+            if group_names:
+                conditions.append(
+                    and_(
+                        Kind.namespace.in_(group_names),
+                        Kind.kind == self.kind,
+                        Kind.is_active == True,
+                    )
+                )
+
+            return db.query(Kind).filter(or_(*conditions)).all()
 
     def get_resource(self, user_id: int, namespace: str, name: str) -> Optional[Kind]:
         """Get a specific resource"""

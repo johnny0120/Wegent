@@ -274,18 +274,18 @@ bash scripts/hooks/ai-push-gate.sh
 wegent/
 ├── backend/              # FastAPI backend
 │   ├── app/
-│   │   ├── api/          # Route handlers (auth, bots, models, shells, teams, tasks, chat, git, executors, dify, quota, admin)
+│   │   ├── api/          # Route handlers (auth, bots, models, shells, teams, tasks, chat, git, executors, dify, quota, admin, groups)
 │   │   ├── core/         # Config, security, cache, YAML init
-│   │   ├── models/       # SQLAlchemy models (Kind, User, Subtask, PublicModel, PublicShell, SharedTeam, SharedTask, SkillBinary, SubtaskAttachment)
+│   │   ├── models/       # SQLAlchemy models (Kind, User, Subtask, PublicModel, PublicShell, SharedTeam, SharedTask, SkillBinary, SubtaskAttachment, Group, GroupMember)
 │   │   ├── schemas/      # Pydantic schemas & CRD definitions
-│   │   ├── services/     # Business logic (chat/, adapters/, kind.py, repository.py)
+│   │   ├── services/     # Business logic (chat/, adapters/, kind.py, repository.py, group_service.py)
 │   │   └── repository/   # Git providers (GitHub, GitLab, Gitee, Gerrit)
 │   ├── alembic/          # Database migrations
 │   └── init_data/        # YAML initialization data
 ├── frontend/             # Next.js frontend
 │   └── src/
-│       ├── app/          # Pages: /, /login, /settings, /chat, /code, /tasks, /shared/task, /admin
-│       ├── apis/         # API clients (client.ts + module-specific, admin.ts)
+│       ├── app/          # Pages: /, /login, /settings, /chat, /code, /tasks, /shared/task, /admin, /groups
+│       ├── apis/         # API clients (client.ts + module-specific, admin.ts, groups.ts)
 │       ├── components/   # UI components (ui/ for shadcn, common/)
 │       ├── features/     # Feature modules (common, layout, login, settings, tasks, theme, onboarding, admin)
 │       ├── hooks/        # Custom hooks (useChatStream, useTranslation, useAttachment, useStreamingRecovery)
@@ -519,9 +519,25 @@ spec:
 | `/api/git` | Repository, branches, diff |
 | `/api/executors` | Task dispatch, status updates |
 | `/api/dify` | Dify app info, parameters |
+| `/api/groups` | Group management, membership |
 | `/api/v1/namespaces/{ns}/{kinds}` | Kubernetes-style Kind API |
+| `/api/v1/{kinds}/all` | List all accessible resources across namespaces |
 | `/api/v1/kinds/skills` | Skill upload/management |
 | `/api/admin` | Admin operations (user management, public models, system stats) |
+
+### Group API Endpoints (`/api/groups`)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/groups` | GET | List all groups accessible to user |
+| `/groups` | POST | Create new group |
+| `/groups/{group_name}` | GET | Get group details |
+| `/groups/{group_name}` | PUT | Update group (display_name, description, visibility) |
+| `/groups/{group_name}` | DELETE | Delete group (soft delete, owner only) |
+| `/groups/{group_name}/members` | GET | List group members |
+| `/groups/{group_name}/members` | POST | Add member to group |
+| `/groups/{group_name}/members/{user_id}` | PUT | Update member role |
+| `/groups/{group_name}/members/{user_id}` | DELETE | Remove member from group |
 
 ### Admin API Endpoints (`/api/admin`)
 
@@ -586,6 +602,87 @@ spec:
 The `role` column was added via migration `b2c3d4e5f6a7_add_role_to_users.py`:
 - Default value: 'user'
 - Users with `user_name='admin'` are automatically set to `role='admin'`
+
+---
+
+## 👥 Group Management & Resource Organization
+
+### Overview
+
+Groups provide a way to organize users and share resources within namespaces. The system uses a namespace-based resource organization model where resources can belong to different scopes:
+
+### Resource Visibility Model
+
+| Scope | User ID | Namespace | Description |
+|-------|---------|-----------|-------------|
+| **Public** | 0 | `default` | System-provided public resources accessible to all users |
+| **Personal** | user_id | `default` | User's private resources in default namespace |
+| **Group** | creator_id | group_name | Resources shared within a group namespace |
+
+### Group Structure
+
+**Group Model:**
+- `name`: Unique identifier (immutable, used as namespace)
+- `display_name`: Human-readable name (mutable)
+- `description`: Optional group description
+- `visibility`: `private` or `public`
+- `parent_id`: Optional parent group for hierarchical organization
+- `owner_user_id`: Group owner
+
+**GroupMember Model:**
+- `group_name`: References group by name (not ID)
+- `user_id`: Member user ID
+- `role`: `owner`, `admin`, or `member`
+- `invited_by_user_id`: Who invited this member
+
+### Group Roles
+
+| Role | Permissions |
+|------|-------------|
+| `owner` | Full control: update group, add/remove members, delete group |
+| `admin` | Add/remove members, update member roles (except owner) |
+| `member` | View group resources, create resources in group namespace |
+
+### Resource Access Control
+
+When listing resources via `/api/v1/{kinds}/all`:
+1. **Personal resources**: Resources in `default` namespace owned by user
+2. **Public resources**: Resources in `default` namespace with `user_id=0`
+3. **Group resources**: Resources in group namespaces where user is a member
+
+### Database Schema
+
+**groups table:**
+```sql
+- id (PK)
+- name (unique, indexed) -- Used as namespace
+- display_name
+- parent_id (FK -> groups.id)
+- owner_user_id (FK -> users.id)
+- visibility ('private' | 'public')
+- description
+- is_active
+- created_at, updated_at
+```
+
+**group_members table:**
+```sql
+- id (PK)
+- group_name (FK -> groups.name, indexed)
+- user_id (FK -> users.id, indexed)
+- role ('owner' | 'admin' | 'member')
+- invited_by_user_id (FK -> users.id)
+- is_active
+- created_at, updated_at
+- UNIQUE(group_name, user_id)
+```
+
+### Migration
+
+Database migration: `b7c8d9e0f1a2_add_groups_and_migrate_public_resources.py`
+- Creates `groups` table with unique name constraint
+- Creates `group_members` table with group_name foreign key
+- Adds indexes for efficient querying
 
 ---
 

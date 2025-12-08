@@ -7,7 +7,7 @@ Unified Kind API endpoints for all Kubernetes-style CRD operations
 """
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from app.api.endpoints.kind.common import (
     KIND_SCHEMA_MAP,
@@ -21,6 +21,43 @@ from app.models.user import User
 from app.services.kind import kind_service
 
 router = APIRouter()
+
+
+@router.get("/{kinds}/all")
+async def list_all_accessible_resources(
+    kinds: str = Path(
+        ...,
+        description="Resource type. Valid options: ghosts, models, shells, bots, teams, workspaces, tasks",
+    ),
+    include_public: bool = Query(True, description="Include public resources"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    List all resources accessible to the current user
+
+    Returns resources from:
+    - Personal namespace (user's own resources)
+    - Public resources (if include_public=True)
+    - Group namespaces (groups the user is a member of)
+    """
+    # Validate resource type
+    kind = validate_resource_type(kinds)
+
+    # Get user's groups
+    from app.db.session import SessionLocal
+    from app.services.group_service import GroupService
+
+    with SessionLocal() as db:
+        user_groups = GroupService.get_user_groups(db, current_user.id, include_public=False)
+        group_names = [g.name for g in user_groups]
+
+    # Get all accessible resources
+    resources = kind_service.list_all_accessible_resources(
+        current_user.id, kind, include_public, group_names
+    )
+
+    # Format and return response
+    return format_resource_list(kind, resources)
 
 
 @router.get("/namespaces/{namespace}/{kinds}")
