@@ -89,6 +89,7 @@ async def get_group(
 ):
     """Get group detail"""
     group_name = get_group_name_by_id(group_id, db)
+
     return group_service.get_group_detail(group_name, current_user.id)
 
 
@@ -102,6 +103,7 @@ async def update_group(
 ):
     """Update group information (Maintainer+ permission required)"""
     group_name = get_group_name_by_id(group_id, db)
+
     group_service.update_group(group_name, current_user.id, group_update)
     return group_service.get_group_detail(group_name, current_user.id)
 
@@ -115,6 +117,7 @@ async def delete_group(
 ):
     """Delete a group (Owner only, must have no subgroups or resources)"""
     group_name = get_group_name_by_id(group_id, db)
+
     group_service.delete_group(group_name, current_user.id)
     return None
 
@@ -127,8 +130,11 @@ async def list_group_members(
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Get list of group members"""
+    group_name = get_group_name_by_id(group_id, db)
+
     items, total = group_service.list_group_members(
         group_name=group_name, user_id=current_user.id, skip=skip, limit=limit
     )
@@ -141,8 +147,11 @@ async def invite_member(
     invite: GroupMemberInvite,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Invite a user to the group (Maintainer+ permission required)"""
+    group_name = get_group_name_by_id(group_id, db)
+
     member = group_service.invite_member(group_name, current_user.id, invite)
     return {"message": "Member invited successfully", "member_id": member.id}
 
@@ -168,8 +177,11 @@ async def remove_member(
     user_id: int,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Remove a member from the group (Maintainer+ permission required)"""
+    group_name = get_group_name_by_id(group_id, db)
+
     group_service.remove_member(group_name, current_user.id, user_id)
     return None
 
@@ -180,8 +192,11 @@ async def invite_all_users(
     request: InviteAllUsersRequest,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Invite all system users to the group with default Reporter role (Owner only)"""
+    group_name = get_group_name_by_id(group_id, db)
+
     count = group_service.invite_all_users(group_name, current_user.id, request.role)
     return {"message": f"Successfully invited {count} users", "count": count}
 
@@ -191,8 +206,11 @@ async def leave_group(
     group_id: int,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Leave a group (not available for Owner, must transfer ownership first)"""
+    group_name = get_group_name_by_id(group_id, db)
+
     group_service.leave_group(group_name, current_user.id)
     return None
 
@@ -203,10 +221,13 @@ async def transfer_ownership(
     request: TransferOwnershipRequest,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Transfer group ownership to another Maintainer (Owner only)"""
+    group_name = get_group_name_by_id(group_id, db)
+
     group_service.transfer_ownership(
-        group_id, current_user.id, request.new_owner_user_id
+        group_name, current_user.id, request.new_owner_user_id
     )
     return {"message": "Ownership transferred successfully"}
 
@@ -268,6 +289,8 @@ async def get_group_bot(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Get a bot detail in the specified group"""
+    group_name = get_group_name_by_id(group_id, db)
+
     # Check view permission
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -361,6 +384,8 @@ async def create_group_bot(
     group_service: GroupService = Depends(get_group_service),
 ):
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     Create a new bot in the specified group (Developer+ permission required)
     """
     try:
@@ -396,6 +421,8 @@ async def update_group_bot(
     """
     Update a bot in the specified group (Developer+ permission required)
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     try:
         bot = group_service.update_group_bot(group_name, current_user.id, bot_id, bot_data)
         logger.info(
@@ -472,6 +499,8 @@ async def create_group_model(
     group_service: GroupService = Depends(get_group_service),
 ):
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     Create a new model in the specified group (Developer+ permission required)
     """
     # Check if user has create permission in the group
@@ -608,6 +637,8 @@ async def update_group_model(
     """
     Update a model in the specified group (Developer+ permission required)
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     # Check if user has edit permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "edit")
     if not has_perm:
@@ -695,6 +726,8 @@ async def delete_group_model(
     """
     Delete a model from the specified group (Maintainer+ permission required)
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     # Check if user has delete permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "delete")
     if not has_perm:
@@ -801,6 +834,8 @@ async def get_group_unified_shells(
     group_service: GroupService = Depends(get_group_service),
 ) -> Dict[str, Any]:
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     Get unified shells available to a group.
     
     Returns shells in the following priority order:
@@ -893,6 +928,8 @@ async def create_group_shell(
     """
     Create a new shell in the specified group (Developer+ permission required)
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     # Check if user has create permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "create")
     if not has_perm:
@@ -969,6 +1006,8 @@ async def update_group_shell(
     """
     Update a shell in the specified group (Developer+ permission required)
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     # Check if user has edit permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "edit")
     if not has_perm:
@@ -1035,6 +1074,8 @@ async def delete_group_shell(
     """
     Delete a shell from the specified group (Maintainer+ permission required)
     """
+    group_name = get_group_name_by_id(group_id, db)
+
     # Check if user has delete permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "delete")
     if not has_perm:

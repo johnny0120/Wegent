@@ -15,14 +15,19 @@ from app.db.base import Base
 
 
 class Group(Base):
-    """Group model for organizing users and resources"""
+    """Group model for organizing users and resources
+
+    Groups use path-based naming for hierarchy:
+    - Root group: "groupname"
+    - Child group: "parent/child"
+    - Nested child: "parent/child/grandchild"
+    """
 
     __tablename__ = "groups"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False, unique=True, index=True)
+    name = Column(String(255), nullable=False, unique=True, index=True)  # Path-based: "parent/child"
     display_name = Column(String(100), nullable=True)
-    parent_name = Column(String(100), nullable=True, index=True)
     owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     visibility = Column(String(20), default="private")  # Reserved for future use
     description = Column(Text, nullable=True)
@@ -33,6 +38,18 @@ class Group(Base):
     # Relationships
     owner = relationship("User", foreign_keys=[owner_user_id])
     members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
+
+    @property
+    def parent_path(self) -> str:
+        """Get parent group path from name"""
+        if '/' in self.name:
+            return '/'.join(self.name.split('/')[:-1])
+        return None
+
+    @property
+    def path_depth(self) -> int:
+        """Get the depth of the group in the hierarchy"""
+        return self.name.count('/') + 1
 
     __table_args__ = (
         {

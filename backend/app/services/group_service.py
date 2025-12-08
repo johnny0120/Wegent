@@ -106,22 +106,22 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         self.db = db
 
     def get_user_role_in_group(
-        self, group_name: str, user_id: int, check_parents: bool = True
+        self, group_id: int, user_id: int, check_parents: bool = True
     ) -> Optional[GroupRole]:
         """
         Get user's role in a group, considering parent groups if check_parents=True
         Returns the highest role found in the group hierarchy
         """
         if check_parents:
-            # Get all ancestor group names (including current group)
-            ancestor_names = self._get_ancestor_group_names(group_name)
+            # Get all ancestor groups (including current group)
+            ancestor_ids = self._get_ancestor_group_ids(group_id)
 
             # Query all memberships in ancestor groups
             memberships = (
                 self.db.query(GroupMember)
                 .filter(
                     and_(
-                        GroupMember.group_name.in_(ancestor_names),
+                        GroupMember.group_id.in_(ancestor_ids),
                         GroupMember.user_id == user_id,
                         GroupMember.is_active == True,
                     )
@@ -151,18 +151,21 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             return GroupRole(membership.role) if membership else None
 
     def _get_ancestor_group_names(self, group_name: str) -> List[str]:
-        """Get all ancestor group names including the group itself"""
-        ancestor_names = [group_name]
-        current_name = group_name
+        """
+        Get all ancestor group names including the group itself using path parsing.
 
-        # Recursive query to find all parent groups
-        while current_name:
-            group = self.db.query(Group).filter(Group.name == current_name).first()
-            if group and group.parent_name and group.parent_name not in ancestor_names:
-                ancestor_names.append(group.parent_name)
-                current_name = group.parent_name
-            else:
-                break
+        Example: "aaa/bbb/ccc" -> ["aaa", "aaa/bbb", "aaa/bbb/ccc"]
+        """
+        if '/' not in group_name:
+            # Root group - no ancestors
+            return [group_name]
+
+        # Split path and build all ancestor paths
+        parts = group_name.split('/')
+        ancestor_names = []
+
+        for i in range(1, len(parts) + 1):
+            ancestor_names.append('/'.join(parts[:i]))
 
         return ancestor_names
 
@@ -181,18 +184,18 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
     def create_group(
         self, group_create: GroupCreate, owner_user_id: int
     ) -> Group:
-        """Create a new group with owner as the creator"""
-        # Check if group name already exists
-        existing = self.db.query(Group).filter(Group.name == group_create.name).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Group name '{group_create.name}' already exists"
-            )
+        """
+        Create a new group with owner as the creator.
+        Supports path-based hierarchy: parent_path + "/" + name = full_path
+        """
+        # Construct full path from parent_path + name
+        if group_create.parent_path:
+            full_path = f"{group_create.parent_path}/{group_create.name}"
 
-        # Validate parent group if specified
-        if group_create.parent_name:
-            parent_group = self.db.query(Group).filter(Group.name == group_create.parent_name).first()
+            # Validate parent exists
+            parent_group = self.db.query(Group).filter(
+                Group.name == group_create.parent_path
+            ).first()
             if not parent_group:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -201,19 +204,28 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
 
             # Check if user has Maintainer+ permission in parent group
             has_perm, _ = self.check_permission(
-                group_create.parent_name, owner_user_id, "create"
+                group_create.parent_path, owner_user_id, "create"
             )
             if not has_perm:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="No permission to create subgroup in parent group"
                 )
+        else:
+            full_path = group_create.name
 
-        # Create group
+        # Check if path already exists
+        existing = self.db.query(Group).filter(Group.name == full_path).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Group path '{full_path}' already exists"
+            )
+
+        # Create group with full path
         group = Group(
-            name=group_create.name,
+            name=full_path,
             display_name=group_create.display_name or group_create.name,
-            parent_name=group_create.parent_name,
             owner_user_id=owner_user_id,
             description=group_create.description,
             visibility="private",
@@ -280,17 +292,24 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             # Get user's role
             role = self.get_user_role_in_group(group.name, user_id, check_parents=False)
 
+            # Compute path-based fields
+            parent_path = group.parent_path
+            simple_name = group.name.split('/')[-1] if '/' in group.name else group.name
+            path_depth = group.path_depth
+
             items.append(
                 GroupListItem(
                     id=group.id,
                     name=group.name,
                     display_name=group.display_name,
-                    parent_name=group.parent_name,
+                    parent_path=parent_path,
+                    simple_name=simple_name,
                     description=group.description,
                     member_count=member_count,
                     resource_count=resource_count,
                     my_role=role,
                     created_at=group.created_at,
+                    path_depth=path_depth,
                 )
             )
 
@@ -392,10 +411,10 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
             )
 
-        # Check if group has subgroups
+        # Check if group has subgroups using path prefix matching
         subgroups_count = (
             self.db.query(func.count(Group.id))
-            .filter(Group.parent_name == group_name)
+            .filter(Group.name.like(f"{group_name}/%"))
             .scalar()
         )
         if subgroups_count > 0:
