@@ -17,10 +17,10 @@ from app.db.base import Base
 class GroupMember(Base):
     """GroupMember model for managing user roles within groups"""
 
-    __tablename__ = "group_members"
+    __tablename__ = "namespace_members"
 
     id = Column(Integer, primary_key=True, index=True)
-    group_name = Column(String(100), ForeignKey("groups.name"), nullable=False, index=True)
+    group_name = Column(String(100), ForeignKey("namespace.name"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # Owner, Maintainer, Developer, Reporter
     invited_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)

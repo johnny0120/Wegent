@@ -554,7 +554,7 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 
 ### Database Schema
 
-**Groups Table:**
+**Namespace Table (stores groups):**
 - `id`, `name` (unique, String(255)), `display_name`, `owner_user_id`, `description`
 - `visibility` (reserved for future), `is_active`, timestamps
 - **Path-based hierarchy**: Groups use path-based naming with "/" delimiter
@@ -565,8 +565,8 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 - `display_name` can be modified to show user-friendly names
 - Parent-child relationships are determined by path prefix matching
 
-**Group Members Table:**
-- `id`, `group_name` (references groups.name), `user_id`, `role` (Owner/Maintainer/Developer/Reporter)
+**Namespace Members Table (stores group members):**
+- `id`, `group_name` (references namespace.name), `user_id`, `role` (Owner/Maintainer/Developer/Reporter)
 - `invited_by_user_id`, `is_active`, timestamps
 - UNIQUE constraint on (group_name, user_id)
 

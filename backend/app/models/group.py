@@ -23,7 +23,7 @@ class Group(Base):
     - Nested child: "parent/child/grandchild"
     """
 
-    __tablename__ = "groups"
+    __tablename__ = "namespace"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, unique=True, index=True)  # Path-based: "parent/child"

@@ -77,7 +77,7 @@ Groups allow you to:
 
 ## Database Schema
 
-### Groups Table
+### Namespace Table (stores groups)
 - `id` - Primary key
 - `name` - Group name (unique, String(255))
   - Uses path-based naming for hierarchy (e.g., "parent/child")
@@ -89,9 +89,9 @@ Groups allow you to:
 - `is_active` - Active status
 - `created_at`, `updated_at` - Timestamps
 
-### Group Members Table
+### Namespace Members Table (stores group members)
 - `id` - Primary key
-- `group_name` - References groups.name (string-based foreign key)
+- `group_name` - References namespace.name (string-based foreign key)
 - `user_id` - Foreign key to users
 - `role` - Member role (Owner, Maintainer, Developer, Reporter)
 - `invited_by_user_id` - Inviter user ID
