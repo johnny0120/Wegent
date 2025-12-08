@@ -454,13 +454,15 @@ Wegent supports three types of AI models:
 
 | Type | Description | Storage |
 |------|-------------|---------|
-| **Public** | System-provided models, shared across all users | `kinds` table (user_id=0, kind='Model') |
-| **User** | User-defined private models | `kinds` table (user_id=current_user, group_id=NULL) |
-| **Group** | Group-shared models | `kinds` table (group_id=group_id, kind='Model') |
+| **Public** | System-provided models, shared across all users | `kinds` table (user_id=0, namespace='default') |
+| **User** | User-defined private models | `kinds` table (user_id=xxx, namespace='default') |
+| **Group** | Group-shared models | `kinds` table (user_id=xxx, namespace!=default) |
 
-**Note:** Public models migrated from `public_models` table to `kinds` table with `user_id=0` marker.
-
-### Model Resolution Order
+**Note:**
+- Public resources use `user_id=0`, `namespace=default`
+- Personal resources use `user_id=xxx`, `namespace=default`
+- Group resources use `user_id=xxx`, `namespace!=default` (user_id represents who created the group resource)
+- Public models migrated from `public_models` table to `kinds` table with `user_id=0` marker.
 
 1. Task-level model override (`force_override_bot_model`)
 2. Bot's `bind_model` from `agent_config`
@@ -489,7 +491,7 @@ spec:
 spec:
   modelRef:
     name: model-name
-    namespace: default
+    namespace: default  # or group namespace for group models
 ```
 
 ---
@@ -553,8 +555,9 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 ### Database Schema
 
 **Groups Table:**
-- `id`, `name`, `parent_id` (nullable), `owner_user_id`, `description`
+- `id`, `name`, `parent_name` (nullable), `owner_user_id`, `description`
 - `visibility` (reserved for future), `is_active`, timestamps
+- `name` field is unique, child groups use `parent_name` to reference parent group name
 
 **Group Members Table:**
 - `id`, `group_id`, `user_id`, `role` (Owner/Maintainer/Developer/Reporter)
@@ -562,8 +565,10 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 - UNIQUE constraint on (group_id, user_id)
 
 **Kinds Table Enhancement:**
-- Added `group_id` field (nullable) to associate resources with groups
-- Public resources use `user_id=0` (migrated from public_models/public_shells)
+- Uses `namespace` field to associate resources with groups instead of `group_id`
+- Public resources use `user_id=0`, `namespace=default`
+- Personal resources use `user_id=xxx`, `namespace=default`
+- Group resources use `user_id=xxx`, `namespace!=default` (user_id represents who created the group resource)
 
 ### Key APIs
 
