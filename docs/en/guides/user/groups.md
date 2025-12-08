@@ -24,7 +24,11 @@ Groups allow you to:
 ## Key Features
 
 ### Hierarchical Groups
-- Groups can have parent-child relationships
+- Groups use path-based naming with "/" delimiter for hierarchy
+  - Root group: `"groupname"`
+  - Child group: `"parent/child"`
+  - Nested child: `"parent/child/grandchild"`
+- Create child groups by providing `parent_path` parameter
 - Permissions are inherited from parent groups
 - Members in parent groups automatically have access to child groups
 
@@ -75,8 +79,10 @@ Groups allow you to:
 
 ### Groups Table
 - `id` - Primary key
-- `name` - Group name
-- `parent_id` - Parent group ID (nullable, for hierarchical structure)
+- `name` - Group name (unique, String(255))
+  - Uses path-based naming for hierarchy (e.g., "parent/child")
+  - Immutable after creation
+- `display_name` - User-friendly display name (modifiable)
 - `owner_user_id` - Owner user ID
 - `visibility` - Visibility setting (currently 'private', reserved for future)
 - `description` - Group description
@@ -85,16 +91,19 @@ Groups allow you to:
 
 ### Group Members Table
 - `id` - Primary key
-- `group_id` - Foreign key to groups
+- `group_name` - References groups.name (string-based foreign key)
 - `user_id` - Foreign key to users
 - `role` - Member role (Owner, Maintainer, Developer, Reporter)
 - `invited_by_user_id` - Inviter user ID
 - `is_active` - Active status
 - `created_at`, `updated_at` - Timestamps
 
-### Kinds Table Enhancement
-- Added `group_id` field (nullable) to associate resources with groups
-- `user_id = 0` for public resources (migrated from public_models/public_shells)
+### Kinds Table (Resource Association)
+- Resources are associated with groups via the `namespace` field:
+  - Public resources: `user_id=0, namespace='default'`
+  - Personal resources: `user_id=xxx, namespace='default'`
+  - Group resources: `user_id=xxx (creator), namespace=group_name`
+- The `group_id` field has been removed - namespace directly stores the group name
 
 ## Migration Notes
 

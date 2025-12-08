@@ -555,11 +555,15 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 ### Database Schema
 
 **Groups Table:**
-- `id`, `name` (unique), `display_name`, `parent_name` (nullable), `owner_user_id`, `description`
+- `id`, `name` (unique, String(255)), `display_name`, `owner_user_id`, `description`
 - `visibility` (reserved for future), `is_active`, timestamps
+- **Path-based hierarchy**: Groups use path-based naming with "/" delimiter
+  - Root group: `"groupname"`
+  - Child group: `"parent/child"`
+  - Nested child: `"parent/child/grandchild"`
 - `name` field is unique and immutable, used as primary identifier in relationships
 - `display_name` can be modified to show user-friendly names
-- `parent_name` references parent group's name for hierarchical structure
+- Parent-child relationships are determined by path prefix matching
 
 **Group Members Table:**
 - `id`, `group_name` (references groups.name), `user_id`, `role` (Owner/Maintainer/Developer/Reporter)
@@ -606,16 +610,23 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 import { groupsApi } from '@/apis/groups'
 import { GroupRole } from '@/types/group'
 
-// Create a group
-const group = await groupsApi.createGroup({
-  name: 'AI Team',
+// Create a root group
+const rootGroup = await groupsApi.createGroup({
+  name: 'ai-team',
   display_name: 'AI Development Team',
-  description: 'AI development team',
-  parent_name: null
+  description: 'AI development team'
+})
+
+// Create a child group using parent_path
+const childGroup = await groupsApi.createGroup({
+  name: 'research',
+  display_name: 'Research Team',
+  parent_path: 'ai-team',  // Creates group with name "ai-team/research"
+  description: 'AI research subteam'
 })
 
 // Invite a member
-await groupsApi.inviteMember(group.id, {
+await groupsApi.inviteMember(rootGroup.id, {
   user_name: 'john',
   role: GroupRole.DEVELOPER
 })
@@ -623,12 +634,11 @@ await groupsApi.inviteMember(group.id, {
 
 ### Important Notes
 
+- **Path-based Hierarchy:** Group names use "/" delimiter for hierarchy. Create child groups by providing `parent_path` parameter.
 - **Resource Migration:** When a member leaves, their group resources are automatically transferred to the group Owner
 - **Owner Restrictions:** Group Owner cannot leave without transferring ownership first
 - **Permission Inheritance:** Parent group members automatically have access to child groups with inherited permissions
 - **Public Resources:** All resources from `public_models` and `public_shells` tables have been migrated to `kinds` table with `user_id=0`
-- **Group Name Immutability:** Group `name` field cannot be changed after creation - use `display_name` for user-facing modifications
-- **API Compatibility:** API endpoints continue to use `group_id` in URLs for backward compatibility, but internally convert to `group_name` for service layer operations
 
 **See also:** `docs/en/guides/user/groups.md` for detailed user guide
 

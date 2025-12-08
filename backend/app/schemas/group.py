@@ -22,16 +22,27 @@ class GroupRole(str, Enum):
 
 # Group Schemas
 class GroupBase(BaseModel):
-    """Base group schema"""
-    name: str = Field(..., min_length=1, max_length=100)
+    """Base group schema
+
+    Groups use path-based naming:
+    - Root group: "groupname"
+    - Child group: "parent/child"
+    """
+    name: str = Field(..., min_length=1, max_length=255, description="Path-based group name (e.g., 'parent/child')")
     display_name: Optional[str] = Field(None, max_length=100)
-    parent_name: Optional[str] = None
     description: Optional[str] = None
 
 
-class GroupCreate(GroupBase):
-    """Schema for creating a new group"""
-    pass
+class GroupCreate(BaseModel):
+    """Schema for creating a new group
+
+    For root groups, provide simple name: "groupname"
+    For child groups, provide full path: "parent/child"
+    """
+    name: str = Field(..., min_length=1, max_length=255, description="Group name or path")
+    display_name: Optional[str] = Field(None, max_length=100)
+    parent_path: Optional[str] = Field(None, description="Parent group path (will be prepended to name)")
+    description: Optional[str] = None
 
 
 class GroupUpdate(BaseModel):
@@ -56,14 +67,16 @@ class GroupInDB(GroupBase):
 class GroupListItem(BaseModel):
     """Schema for group list item"""
     id: int
-    name: str
+    name: str  # Full path: "parent/child"
     display_name: Optional[str]
-    parent_name: Optional[str]
+    parent_path: Optional[str] = None  # Computed from name
+    simple_name: Optional[str] = None  # Last segment of path
     description: Optional[str]
     member_count: int
     resource_count: int
     my_role: GroupRole
     created_at: datetime
+    path_depth: int = 1  # Number of levels in hierarchy
 
     class Config:
         from_attributes = True
