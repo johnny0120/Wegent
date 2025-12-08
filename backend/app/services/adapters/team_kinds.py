@@ -221,7 +221,9 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                 combined_query.c.share_status,
                 combined_query.c.context_user_id,
             )
-            .order_by(combined_query.c.team_created_at.desc())
+            .order_by(
+                combined_query.c.team_updated_at.desc(), combined_query.c.team_id.desc()
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -848,7 +850,7 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             if first_bot:
                 bot_crd = Bot.model_validate(first_bot.json)
                 shell_type = None
-                
+
                 # First check user's custom shells
                 shell = (
                     db.query(Kind)
@@ -861,7 +863,7 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                     )
                     .first()
                 )
-                
+
                 if shell:
                     shell_crd = Shell.model_validate(shell.json)
                     shell_type = shell_crd.spec.shellType
@@ -880,7 +882,7 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                     if public_shell and public_shell.json:
                         shell_crd = Shell.model_validate(public_shell.json)
                         shell_type = shell_crd.spec.shellType
-                
+
                 if shell_type:
                     # Map shellType to agent type
                     if shell_type == "Agno":

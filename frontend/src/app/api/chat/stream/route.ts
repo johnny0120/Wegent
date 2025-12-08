@@ -71,6 +71,10 @@ export async function POST(request: NextRequest) {
       }
     })();
 
+    // Get task ID and subtask ID from backend response headers
+    const taskId = backendResponse.headers.get('X-Task-Id');
+    const subtaskId = backendResponse.headers.get('X-Subtask-Id');
+
     // Return streaming response with proper headers
     return new Response(readable, {
       headers: {
@@ -78,6 +82,9 @@ export async function POST(request: NextRequest) {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
+        // Forward task ID and subtask ID from backend
+        ...(taskId && { 'X-Task-Id': taskId }),
+        ...(subtaskId && { 'X-Subtask-Id': subtaskId }),
       },
     });
   } catch (error) {

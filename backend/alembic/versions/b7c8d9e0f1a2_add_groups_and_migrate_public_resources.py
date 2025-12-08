@@ -5,7 +5,7 @@
 """Add groups tables and migrate public resources to kinds
 
 Revision ID: b7c8d9e0f1a2
-Revises: add_subtask_attachments
+Revises: 2b3c4d5e6f7g
 Create Date: 2025-12-02 10:00:00.000000+08:00
 
 """
@@ -17,7 +17,7 @@ from sqlalchemy.dialects import mysql
 
 # revision identifiers, used by Alembic.
 revision: str = 'b7c8d9e0f1a2'
-down_revision: Union[str, Sequence[str], None] = 'add_subtask_attachments'
+down_revision: Union[str, Sequence[str], None] = '2b3c4d5e6f7g'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     CHAT_HISTORY_MAX_MESSAGES: int = 50  # Maximum messages to keep in history
     CHAT_API_TIMEOUT_SECONDS: int = 300  # LLM API call timeout (5 minutes)
 
+    # Streaming incremental save configuration
+    STREAMING_REDIS_SAVE_INTERVAL: float = 1.0  # Redis save interval (seconds)
+    STREAMING_DB_SAVE_INTERVAL: float = 5.0  # Database save interval (seconds)
+    STREAMING_REDIS_TTL: int = 300  # Redis streaming cache TTL (seconds)
+    STREAMING_MIN_CHARS_TO_SAVE: int = 50  # Minimum characters to save on disconnect
+
     # Task append expiration (hours)
     APPEND_CHAT_TASK_EXPIRE_HOURS: int = 2
     APPEND_CODE_TASK_EXPIRE_HOURS: int = 24
@@ -78,7 +84,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
 
     # Team sharing configuration
-    TEAM_SHARE_BASE_URL: str = "http://localhost:3000"
+    TEAM_SHARE_BASE_URL: str = "http://localhost:3000/chat"
+    TASK_SHARE_BASE_URL: str = "http://localhost:3000"
     TEAM_SHARE_QUERY_PARAM: str = "teamShare"
 
     # AES encryption configuration for share tokens
@@ -103,6 +110,9 @@ class Settings(BaseSettings):
     # default header
     EXECUTOR_ENV: str = '{"DEFAULT_HEADERS":{"user":"${task_data.user.name}"}}'
 
+    # File upload configuration
+    MAX_UPLOAD_FILE_SIZE_MB: int = 50  # Maximum file size in MB
+    MAX_EXTRACTED_TEXT_LENGTH: int = 1000000  # Maximum extracted text length
 
     class Config:
         env_file = ".env"

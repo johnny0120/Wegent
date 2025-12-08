@@ -47,6 +47,13 @@ const ANTHROPIC_MODEL_OPTIONS = [
   { value: 'custom', label: 'Custom...' },
 ];
 
+const GEMINI_MODEL_OPTIONS = [
+  { value: 'gemini-3-pro', label: 'gemini-3-pro (Recommended)' },
+  { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
+  { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash' },
+  { value: 'custom', label: 'Custom...' },
+];
+
 const ModelEdit: React.FC<ModelEditProps> = ({
   model,
   onClose,
@@ -62,9 +69,13 @@ const ModelEdit: React.FC<ModelEditProps> = ({
   const [modelIdName, setModelIdName] = useState(model?.metadata.name || ''); // Unique identifier (ID)
   const [displayName, setDisplayName] = useState(model?.metadata.displayName || ''); // Human-readable name
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId || null);
-  const [providerType, setProviderType] = useState<'openai' | 'anthropic'>(
-    model?.spec.modelConfig?.env?.model === 'openai' ? 'openai' : 'anthropic'
-  );
+  const [providerType, setProviderType] = useState<'openai' | 'anthropic' | 'gemini'>(() => {
+    const modelType = model?.spec.modelConfig?.env?.model;
+    if (modelType === 'openai') return 'openai';
+    if (modelType === 'gemini') return 'gemini';
+    if (modelType === 'claude') return 'anthropic';
+    return 'openai';
+  });
   const [modelId, setModelId] = useState(model?.spec.modelConfig?.env?.model_id || '');
   const [customModelId, setCustomModelId] = useState('');
   const [apiKey, setApiKey] = useState(model?.spec.modelConfig?.env?.api_key || '');
@@ -81,7 +92,12 @@ const ModelEdit: React.FC<ModelEditProps> = ({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   // Determine if current model_id is in preset options
-  const modelOptions = providerType === 'openai' ? OPENAI_MODEL_OPTIONS : ANTHROPIC_MODEL_OPTIONS;
+  const modelOptions =
+    providerType === 'openai'
+      ? OPENAI_MODEL_OPTIONS
+      : providerType === 'gemini'
+        ? GEMINI_MODEL_OPTIONS
+        : ANTHROPIC_MODEL_OPTIONS;
 
   useEffect(() => {
     if (model?.spec.modelConfig?.env?.model_id) {
@@ -97,7 +113,7 @@ const ModelEdit: React.FC<ModelEditProps> = ({
     }
   }, [model, modelOptions]);
 
-  const handleProviderChange = (value: 'openai' | 'anthropic') => {
+  const handleProviderChange = (value: 'openai' | 'anthropic' | 'gemini') => {
     setProviderType(value);
     // Reset model selection
     setModelId('');
@@ -105,6 +121,8 @@ const ModelEdit: React.FC<ModelEditProps> = ({
     // Update default base URL
     if (value === 'openai') {
       setBaseUrl('https://api.openai.com/v1');
+    } else if (value === 'gemini') {
+      setBaseUrl('https://generativelanguage.googleapis.com');
     } else {
       setBaseUrl('https://api.anthropic.com');
     }
@@ -254,7 +272,12 @@ const ModelEdit: React.FC<ModelEditProps> = ({
         spec: {
           modelConfig: {
             env: {
-              model: providerType === 'openai' ? 'openai' : 'claude',
+              model:
+                providerType === 'openai'
+                  ? 'openai'
+                  : providerType === 'gemini'
+                    ? 'gemini'
+                    : 'claude',
               model_id: finalModelId,
               api_key: apiKey,
               ...(baseUrl && { base_url: baseUrl }),
@@ -267,6 +290,7 @@ const ModelEdit: React.FC<ModelEditProps> = ({
           state: 'Available',
         },
       };
+
       if (isEditing) {
         // Check if we're editing a group model
         if (isGroupContext && selectedGroupId) {
@@ -321,9 +345,14 @@ const ModelEdit: React.FC<ModelEditProps> = ({
     return () => window.removeEventListener('keydown', handleEsc);
   }, [handleBack]);
 
-  const apiKeyPlaceholder = providerType === 'openai' ? 'sk-...' : 'sk-ant-...';
+  const apiKeyPlaceholder =
+    providerType === 'openai' ? 'sk-...' : providerType === 'gemini' ? 'AIza...' : 'sk-ant-...';
   const baseUrlPlaceholder =
-    providerType === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com';
+    providerType === 'openai'
+      ? 'https://api.openai.com/v1'
+      : providerType === 'gemini'
+        ? 'https://generativelanguage.googleapis.com'
+        : 'https://api.anthropic.com';
 
   return (
     <div className="flex flex-col w-full bg-surface rounded-lg px-2 py-4 min-h-[500px]">
@@ -462,6 +491,12 @@ const ModelEdit: React.FC<ModelEditProps> = ({
                 <div className="flex items-center gap-2">
                   <span>Anthropic</span>
                   <span className="text-xs text-text-muted">(Claude Code)</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="gemini">
+                <div className="flex items-center gap-2">
+                  <span>Gemini</span>
+                  <span className="text-xs text-text-muted">(Google)</span>
                 </div>
               </SelectItem>
             </SelectContent>

@@ -25,6 +25,7 @@ import { createTeam, updateTeam } from '../services/teams';
 import TeamEditDrawer from './TeamEditDrawer';
 import { useTranslation } from '@/hooks/useTranslation';
 import { shellApis, UnifiedShell } from '@/apis/shells';
+import { BotEditRef } from './BotEdit';
 import { groupsApi } from '@/apis/groups';
 
 // Import mode-specific editors
@@ -42,7 +43,7 @@ interface TeamEditProps {
   setEditingTeamId: React.Dispatch<React.SetStateAction<number | null>>;
   initialTeam?: Team | null;
   bots: Bot[];
-  setBots: React.Dispatch<React.SetStateAction<Bot[]>>;
+  setBots: React.Dispatch<React.SetStateAction<Bot[]>>; // Add setBots property
   toast: ReturnType<typeof import('@/hooks/use-toast').useToast>['toast'];
   groupId?: number | null;
   groups?: any[];
@@ -95,19 +96,22 @@ export default function TeamEdit(props: TeamEditProps) {
 
   // Shells data for resolving custom shell runtime types
   const [shells, setShells] = useState<UnifiedShell[]>([]);
-  
+
   // Load groups if not provided (only when in group context)
   const [loadedGroups, setLoadedGroups] = useState<any[]>(groups);
-  
+
   // Selected group for team creation/editing
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId || null);
-  
+
   // Check if we're in group context
   const isGroupContext = groupId !== undefined && groupId !== null;
 
+  // Ref for BotEdit in solo mode
+  const botEditRef = useRef<BotEditRef | null>(null);
+
   // Load shells and groups data on mount
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchShells = async () => {
       try {
         // Only load groups if in group context
         if (isGroupContext && groups.length === 0) {
@@ -173,14 +177,19 @@ export default function TeamEdit(props: TeamEditProps) {
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+
       const target = event.target as HTMLElement | null;
       if (editingBotDrawerVisible) return;
+
+      // Ignore escape events that originate from or immediately after closing the bot drawer
       if (target?.closest('[data-team-edit-drawer="true"]')) return;
       if (lastDrawerClosedAtRef.current && Date.now() - lastDrawerClosedAtRef.current < 200) {
         return;
       }
+
       handleBack();
     };
+
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [handleBack, editingBotDrawerVisible]);
@@ -221,6 +230,7 @@ export default function TeamEdit(props: TeamEditProps) {
       coordinate: '/settings/network.png',
       collaborate: '/settings/parallel.png',
     };
+
     return {
       info: {
         title: t(titleKey),
@@ -252,6 +262,7 @@ export default function TeamEdit(props: TeamEditProps) {
   // When bots change, only update bots-related state, do not reset name and mode
   useEffect(() => {
     if (formTeam) {
+      // Filter by both available bots and mode-compatible bots
       const ids = formTeam.bots
         .filter(b => filteredBots.some((bot: Bot) => bot.id === b.bot_id))
         .map(b => String(b.bot_id));
@@ -270,6 +281,7 @@ export default function TeamEdit(props: TeamEditProps) {
     );
     const hasExistingPrompts =
       formTeam?.bots.some(bot => bot.bot_prompt && bot.bot_prompt.trim().length > 0) ?? false;
+
     return hasSelectedBots || hasUnsavedPrompts || hasExistingPrompts;
   }, [selectedBotKeys, leaderBotId, unsavedPrompts, formTeam]);
 
@@ -286,6 +298,7 @@ export default function TeamEdit(props: TeamEditProps) {
   const handleModeChange = (newMode: TeamMode) => {
     // If same mode, do nothing
     if (newMode === mode) return;
+
     // Check if confirmation is needed
     if (needsModeChangeConfirmation()) {
       setPendingMode(newMode);
@@ -373,6 +386,75 @@ export default function TeamEdit(props: TeamEditProps) {
       });
       return;
     }
+
+    // For solo mode, we need to save the bot first via BotEdit ref
+    if (mode === 'solo') {
+      // Check if we have a bot edit ref to save
+      if (botEditRef.current) {
+        // Validate bot data first
+        const validation = botEditRef.current.validateBot();
+        if (!validation.isValid) {
+          toast({
+            variant: 'destructive',
+            title: validation.error || t('bot.errors.required'),
+          });
+          return;
+        }
+
+        setSaving(true);
+        try {
+          // Save the bot and get its ID
+          const savedBotId = await botEditRef.current.saveBot();
+          if (savedBotId === null) {
+            // Save failed, error toast already shown by BotEdit
+            setSaving(false);
+            return;
+          }
+
+          // Use the saved bot ID for the team
+          const botsData = [
+            {
+              bot_id: savedBotId,
+              bot_prompt: unsavedPrompts[`prompt-${savedBotId}`] || '',
+              role: 'leader',
+            },
+          ];
+
+          const workflow = { mode, leader_bot_id: savedBotId };
+
+          if (editingTeam && editingTeamId && editingTeamId > 0) {
+            const updated = await updateTeam(editingTeamId, {
+              name: name.trim(),
+              workflow,
+              bots: botsData,
+            });
+            setTeams(prev => prev.map(team => (team.id === updated.id ? updated : team)));
+          } else {
+            const created = await createTeam({
+              name: name.trim(),
+              workflow,
+              bots: botsData,
+            });
+            setTeams(prev => [created, ...prev]);
+          }
+
+          setUnsavedPrompts({});
+          setEditingTeamId(null);
+        } catch (error) {
+          toast({
+            variant: 'destructive',
+            title:
+              (error as Error)?.message ||
+              (editingTeam ? 'Failed to edit team' : 'Failed to create team'),
+          });
+        } finally {
+          setSaving(false);
+        }
+        return;
+      }
+    }
+
+    // Non-solo mode or no bot edit ref - require leaderBotId
     if (leaderBotId == null) {
       toast({
         variant: 'destructive',
@@ -614,23 +696,23 @@ export default function TeamEdit(props: TeamEditProps) {
         </div>
 
         {/* Right column - Mode-specific editor */}
-        <div className="w-full lg:w-3/5 xl:w-2/3 min-w-0 flex flex-col min-h-0">
+        <div className="w-full lg:w-3/5 xl:w-2/3 min-w-0 flex flex-col min-h-0 flex-1">
           {mode === 'solo' && (
-            <div className="rounded-md border border-border bg-base p-4 flex flex-col flex-1 min-h-0">
-              <SoloModeEditor
-                bots={filteredBots}
-                setBots={setBots}
-                selectedBotId={leaderBotId}
-                setSelectedBotId={setLeaderBotId}
-                editingTeam={editingTeam}
-                toast={toast}
-                unsavedPrompts={unsavedPrompts}
-                teamPromptMap={teamPromptMap}
-                onOpenPromptDrawer={handleOpenPromptDrawer}
-                onCreateBot={handleCreateBot}
-                allowedAgents={allowedAgentsForMode}
-              />
-            </div>
+            <SoloModeEditor
+              bots={filteredBots}
+              setBots={setBots}
+              selectedBotId={leaderBotId}
+              setSelectedBotId={setLeaderBotId}
+              editingTeam={editingTeam}
+              toast={toast}
+              unsavedPrompts={unsavedPrompts}
+              teamPromptMap={teamPromptMap}
+              onOpenPromptDrawer={handleOpenPromptDrawer}
+              onCreateBot={handleCreateBot}
+              allowedAgents={allowedAgentsForMode}
+              editingTeamId={editingTeamId}
+              botEditRef={botEditRef}
+            />
           )}
 
           {/* Pipeline mode: Show PipelineModeEditor */}

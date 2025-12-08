@@ -6,7 +6,18 @@
 
 import React, { memo, useState } from 'react';
 import type { TaskDetail, Team, GitRepoInfo, GitBranch, Attachment } from '@/types/api';
-import { Bot, Copy, Check, Download } from 'lucide-react';
+import {
+  Bot,
+  Copy,
+  Check,
+  Download,
+  AlertCircle,
+  Loader2,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Ban,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import MarkdownEditor from '@uiw/react-markdown-editor';
 import ThinkingComponent from './ThinkingComponent';
@@ -34,6 +45,12 @@ export interface Message {
     value?: unknown;
   }> | null;
   attachments?: Attachment[];
+  /** Recovered content from Redis/DB when user refreshes during streaming */
+  recoveredContent?: string;
+  /** Flag indicating this message has recovered content */
+  isRecovered?: boolean;
+  /** Flag indicating the content is incomplete (client disconnected) */
+  isIncomplete?: boolean;
 }
 
 // CopyButton component for copying markdown content
@@ -146,9 +163,9 @@ const MessageBubble = memo(
     theme,
     t,
   }: MessageBubbleProps) {
-    const bubbleBaseClasses =
-      'relative group w-full p-5 pb-10 rounded-2xl border border-border text-text-primary shadow-sm';
-    const bubbleTypeClasses = msg.type === 'user' ? 'bg-muted my-6' : 'bg-surface';
+    const bubbleBaseClasses = 'relative w-full p-5 pb-10 text-text-primary';
+    const bubbleTypeClasses =
+      msg.type === 'user' ? 'rounded-2xl border border-border bg-muted shadow-sm' : '';
     const isUserMessage = msg.type === 'user';
 
     const formatTimestamp = (timestamp: number | undefined) => {
@@ -171,23 +188,103 @@ const MessageBubble = memo(
       const isActiveStatus = ['RUNNING', 'PENDING', 'PROCESSING'].includes(normalizedStatus);
       const safeProgress = Number.isFinite(progress) ? Math.min(Math.max(progress, 0), 100) : 0;
 
+      // Get status configuration (icon, label key, colors)
+      const getStatusConfig = (statusKey: string) => {
+        switch (statusKey) {
+          case 'RUNNING':
+            return {
+              icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+              labelKey: 'messages.status_running',
+              bgClass: 'bg-primary/10',
+              textClass: 'text-primary',
+              dotClass: 'bg-primary',
+            };
+          case 'PENDING':
+            return {
+              icon: <Clock className="h-3.5 w-3.5" />,
+              labelKey: 'messages.status_pending',
+              bgClass: 'bg-amber-500/10',
+              textClass: 'text-amber-600 dark:text-amber-400',
+              dotClass: 'bg-amber-500',
+            };
+          case 'PROCESSING':
+            return {
+              icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+              labelKey: 'messages.status_processing',
+              bgClass: 'bg-blue-500/10',
+              textClass: 'text-blue-600 dark:text-blue-400',
+              dotClass: 'bg-blue-500',
+            };
+          case 'COMPLETED':
+            return {
+              icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+              labelKey: 'messages.status_completed',
+              bgClass: 'bg-green-500/10',
+              textClass: 'text-green-600 dark:text-green-400',
+              dotClass: 'bg-green-500',
+            };
+          case 'FAILED':
+            return {
+              icon: <XCircle className="h-3.5 w-3.5" />,
+              labelKey: 'messages.status_failed',
+              bgClass: 'bg-red-500/10',
+              textClass: 'text-red-600 dark:text-red-400',
+              dotClass: 'bg-red-500',
+            };
+          case 'CANCELLED':
+            return {
+              icon: <Ban className="h-3.5 w-3.5" />,
+              labelKey: 'messages.status_cancelled',
+              bgClass: 'bg-gray-500/10',
+              textClass: 'text-gray-600 dark:text-gray-400',
+              dotClass: 'bg-gray-500',
+            };
+          case 'CANCELLING':
+            return {
+              icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+              labelKey: 'messages.status_cancelling',
+              bgClass: 'bg-orange-500/10',
+              textClass: 'text-orange-600 dark:text-orange-400',
+              dotClass: 'bg-orange-500',
+            };
+          default:
+            return {
+              icon: <Loader2 className="h-3.5 w-3.5" />,
+              labelKey: 'messages.status_running',
+              bgClass: 'bg-primary/10',
+              textClass: 'text-primary',
+              dotClass: 'bg-primary',
+            };
+        }
+      };
+
+      const config = getStatusConfig(normalizedStatus);
+
       return (
-        <div className="mt-2">
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-sm">
-              {t('messages.task_status')} {status}
+        <div className="mt-3 space-y-2">
+          {/* Status Badge */}
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${config.bgClass} ${config.textClass}`}
+            >
+              {config.icon}
+              <span>{t(config.labelKey) || status}</span>
             </span>
           </div>
-          <div className="w-full bg-border/60 rounded-full h-2">
-            <div
-              className={`bg-primary h-2 rounded-full transition-all duration-300 ease-in-out ${isActiveStatus ? 'progress-bar-animated' : ''}`}
-              style={{ width: `${safeProgress}%` }}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={safeProgress}
-              role="progressbar"
-            ></div>
-          </div>
+
+          {/* Minimal Progress Bar - only show for active statuses */}
+          {isActiveStatus && (
+            <div className="w-full bg-border/40 rounded-full h-1 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${config.dotClass} ${isActiveStatus ? 'progress-bar-shimmer' : ''}`}
+                style={{ width: `${Math.max(safeProgress, 3)}%` }}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={safeProgress}
+                role="progressbar"
+              />
+            </div>
+          )}
         </div>
       );
     };
@@ -369,86 +466,162 @@ const MessageBubble = memo(
         }
 
         return (
-          <div key={idx} className="group pb-4">
-            {idx === 0 && <BubbleTools contentToCopy={message.content} tools={[]} />}
-            <div className="text-sm break-all">{line}</div>
+          <div key={idx} className="text-sm break-all">
+            {line}
           </div>
         );
       });
     };
 
     // Helper function to parse Markdown clarification questions
+    // Supports flexible formats: with/without code blocks, emoji variations, different header levels
+    // Extracts content between the header and the last ``` (or end of content if no valid closing ```)
     const parseMarkdownClarification = (content: string): ClarificationData | null => {
-      let actualContent = content;
-      const codeBlockRegex = /^```(?:markdown)?\s*\n([\s\S]+?)\n```\s*$/;
-      const codeBlockMatch = content.match(codeBlockRegex);
-
-      if (codeBlockMatch) {
-        actualContent = codeBlockMatch[1];
-      }
-
-      if (
-        !actualContent.includes('## 🤔 需求澄清问题') &&
-        !actualContent.includes('## 🤔 Clarification Questions')
-      ) {
+      // Flexible header detection for clarification questions
+      // Matches: ## 🤔 需求澄清问题, ## Clarification Questions, ### 澄清问题, # 需求澄清, etc.
+      const clarificationHeaderRegex =
+        /#{1,6}\s*(?:🤔\s*)?(?:需求)?(?:澄清问题?|clarification\s*questions?)/im;
+      const headerMatch = content.match(clarificationHeaderRegex);
+      if (!headerMatch) {
         return null;
       }
 
+      // Find the position of the header and extract everything from the header onwards
+      const headerIndex = headerMatch.index!;
+      let actualContent = content.substring(headerIndex);
+
+      // Find the last ``` in the content
+      const lastCodeBlockMarkerIndex = actualContent.lastIndexOf('\n```');
+
+      if (lastCodeBlockMarkerIndex !== -1) {
+        // Check if the last ``` is within 2 lines of the actual end
+        const contentAfterMarker = actualContent.substring(lastCodeBlockMarkerIndex + 4); // +4 for '\n```'
+        const linesAfterMarker = contentAfterMarker.split('\n').filter(line => line.trim() !== '');
+
+        if (linesAfterMarker.length <= 2) {
+          // Valid closing ```, extract content before it
+          actualContent = actualContent.substring(0, lastCodeBlockMarkerIndex).trim();
+        }
+        // If the ``` is too far from the end, keep the full content
+      }
+
       const questions: ClarificationData['questions'] = [];
-      const questionRegex = /### Q(\d+): (.*?)(?=\n\*\*Type\*\*:|$)/g;
+
+      // Flexible question header detection
+      // Matches: ### Q1:, ### Q1：, **Q1:**, Q1:, Q1., 1., 1:, etc.
+      const questionRegex =
+        /(?:^|\n)(?:#{1,6}\s*)?(?:\*\*)?Q?(\d+)(?:\*\*)?[:.：]\s*(.*?)(?=\n(?:#{1,6}\s*)?(?:\*\*)?(?:Q?\d+|Type|类型)|\n\*\*(?:Type|类型)\*\*|$)/gi;
       const matches = Array.from(actualContent.matchAll(questionRegex));
 
       for (const match of matches) {
-        const questionNumber = parseInt(match[1]);
-        const questionText = match[2].trim();
+        try {
+          const questionNumber = parseInt(match[1]);
+          const questionText = match[2].trim();
 
-        const questionBlock = actualContent.substring(
-          match.index!,
-          actualContent.indexOf('\n### Q', match.index! + 1) !== -1
-            ? actualContent.indexOf('\n### Q', match.index! + 1)
-            : actualContent.length
-        );
+          if (!questionText) continue;
 
-        const typeMatch = questionBlock.match(/\*\*Type\*\*:\s*(\w+)/);
-        if (!typeMatch) continue;
+          // Find the question block (from current match to next question or end)
+          const startIndex = match.index!;
+          const nextQuestionMatch = actualContent
+            .substring(startIndex + match[0].length)
+            .match(/\n(?:#{1,6}\s*)?(?:\*\*)?Q?\d+[:.：]/i);
+          const endIndex = nextQuestionMatch
+            ? startIndex + match[0].length + nextQuestionMatch.index!
+            : actualContent.length;
+          const questionBlock = actualContent.substring(startIndex, endIndex);
 
-        const questionType = typeMatch[1] as 'single_choice' | 'multiple_choice' | 'text_input';
-        const questionId = `q${questionNumber}`;
+          // Flexible type detection
+          // Matches: **Type**: value, Type: value, **类型**: value, 类型: value
+          const typeMatch = questionBlock.match(/(?:\*\*)?(?:Type|类型)(?:\*\*)?[:\s：]+\s*(\w+)/i);
+          if (!typeMatch) continue;
 
-        if (questionType === 'text_input') {
-          questions.push({
-            question_id: questionId,
-            question_text: questionText,
-            question_type: 'text_input',
-          });
-        } else {
-          const options: ClarificationData['questions'][0]['options'] = [];
-          const optionRegex = /- \[([ ✓])\] `([^`]+)` - (.*?)(?=\n-|\n\*\*|\n###|\n##|$)/g;
-          let optionMatch;
+          const typeValue = typeMatch[1].toLowerCase();
+          let questionType: 'single_choice' | 'multiple_choice' | 'text_input';
 
-          while ((optionMatch = optionRegex.exec(questionBlock)) !== null) {
-            const isRecommended = optionMatch[1] === '✓';
-            const value = optionMatch[2];
-            const label = optionMatch[3]
-              .trim()
-              .replace(/\(recommended\)$/i, '')
-              .trim();
-
-            options.push({
-              value,
-              label,
-              recommended: isRecommended,
-            });
+          if (typeValue.includes('single') || typeValue === 'single_choice') {
+            questionType = 'single_choice';
+          } else if (typeValue.includes('multi') || typeValue === 'multiple_choice') {
+            questionType = 'multiple_choice';
+          } else if (typeValue.includes('text') || typeValue === 'text_input') {
+            questionType = 'text_input';
+          } else {
+            questionType = 'single_choice'; // default fallback
           }
 
-          if (options.length > 0) {
+          const questionId = `q${questionNumber}`;
+
+          if (questionType === 'text_input') {
             questions.push({
               question_id: questionId,
               question_text: questionText,
-              question_type: questionType,
-              options,
+              question_type: 'text_input',
             });
+          } else {
+            const options: ClarificationData['questions'][0]['options'] = [];
+
+            // Flexible option detection
+            // Matches: - [✓] `value` - Label, - [x] value - Label, - [ ] `value` - Label, - `value` - Label
+            const optionRegex =
+              /- \[([✓xX* ]?)\]\s*`?([^`\n-]+)`?\s*-\s*(.*?)(?=\n-|\n\*\*|\n#{1,6}|$)/g;
+            let optionMatch;
+
+            while ((optionMatch = optionRegex.exec(questionBlock)) !== null) {
+              const checkMark = optionMatch[1].trim();
+              const isRecommended =
+                checkMark === '✓' || checkMark.toLowerCase() === 'x' || checkMark === '*';
+              const value = optionMatch[2].trim();
+              const label = optionMatch[3]
+                .trim()
+                .replace(/\s*\((?:recommended|推荐)\)\s*$/i, '')
+                .trim();
+
+              if (value) {
+                options.push({
+                  value,
+                  label: label || value,
+                  recommended: isRecommended,
+                });
+              }
+            }
+
+            // Fallback: try simpler option format without checkbox
+            // Matches: - `value` - Label, - value - Label
+            if (options.length === 0) {
+              const simpleOptionRegex = /-\s*`?([^`\n-]+)`?\s*-\s*(.*?)(?=\n-|\n\*\*|\n#{1,6}|$)/g;
+              let simpleMatch;
+
+              while ((simpleMatch = simpleOptionRegex.exec(questionBlock)) !== null) {
+                const value = simpleMatch[1].trim();
+                const label = simpleMatch[2]
+                  .trim()
+                  .replace(/\s*\((?:recommended|推荐)\)\s*$/i, '')
+                  .trim();
+                const isRecommended =
+                  simpleMatch[2].toLowerCase().includes('recommended') ||
+                  simpleMatch[2].includes('推荐');
+
+                if (value && !value.startsWith('[')) {
+                  options.push({
+                    value,
+                    label: label || value,
+                    recommended: isRecommended,
+                  });
+                }
+              }
+            }
+
+            if (options.length > 0) {
+              questions.push({
+                question_id: questionId,
+                question_text: questionText,
+                question_type: questionType,
+                options,
+              });
+            }
           }
+        } catch {
+          // Continue parsing other questions even if one fails
+          continue;
         }
       }
 
@@ -461,30 +634,62 @@ const MessageBubble = memo(
     };
 
     // Helper function to parse Markdown final prompt
+    // Supports flexible formats: with/without code blocks, emoji variations, different header levels
+    // Extracts content between the header and the last ``` (or end of content if no valid closing ```)
     const parseMarkdownFinalPrompt = (content: string): FinalPromptData | null => {
-      let actualContent = content;
-      const codeBlockRegex = /^```(?:markdown)?\s*\n([\s\S]+?)\n```\s*$/;
-      const codeBlockMatch = content.match(codeBlockRegex);
-
-      if (codeBlockMatch) {
-        actualContent = codeBlockMatch[1];
-      }
-
-      if (
-        !actualContent.includes('## ✅ 最终需求提示词') &&
-        !actualContent.includes('## ✅ Final Requirement Prompt')
-      ) {
+      // Flexible header detection for final prompt
+      // Matches: ## ✅ 最终需求提示词, ## Final Requirement Prompt, ### 最终提示词, # final prompt, etc.
+      const finalPromptHeaderRegex =
+        /#{1,6}\s*(?:✅\s*)?(?:最终(?:需求)?提示词|final\s*(?:requirement\s*)?prompt)/im;
+      const headerMatch = content.match(finalPromptHeaderRegex);
+      if (!headerMatch) {
         return null;
       }
 
-      const headingRegex = /## ✅ (?:最终需求提示词|Final Requirement Prompt)[^\n]*\n+([\s\S]+)/;
-      const headingMatch = actualContent.match(headingRegex);
+      // Find the position of the header and extract everything from the header line onwards
+      const headerIndex = headerMatch.index!;
+      const contentFromHeader = content.substring(headerIndex);
 
-      if (!headingMatch) return null;
+      // Find the end of the header line
+      const headerLineEndIndex = contentFromHeader.indexOf('\n');
+      if (headerLineEndIndex === -1) {
+        // Header is the only line, no content after it
+        return null;
+      }
+
+      // Get content after the header line
+      const afterHeader = contentFromHeader.substring(headerLineEndIndex + 1);
+
+      // Find the last ``` in the content
+      const lastCodeBlockMarkerIndex = afterHeader.lastIndexOf('\n```');
+
+      let promptContent: string;
+
+      if (lastCodeBlockMarkerIndex !== -1) {
+        // Check if the last ``` is within 2 lines of the actual end
+        const contentAfterMarker = afterHeader.substring(lastCodeBlockMarkerIndex + 4); // +4 for '\n```'
+        const linesAfterMarker = contentAfterMarker.split('\n').filter(line => line.trim() !== '');
+
+        if (linesAfterMarker.length <= 2) {
+          // Valid closing ```, extract content before it
+          promptContent = afterHeader.substring(0, lastCodeBlockMarkerIndex).trim();
+        } else {
+          // The ``` is too far from the end, model probably didn't output proper closing
+          // Take everything to the end
+          promptContent = afterHeader.trim();
+        }
+      } else {
+        // No closing ``` found, take everything to the end
+        promptContent = afterHeader.trim();
+      }
+
+      if (!promptContent) {
+        return null;
+      }
 
       return {
         type: 'final_prompt',
-        final_prompt: headingMatch[1].trim(),
+        final_prompt: promptContent,
       };
     };
 
@@ -548,14 +753,92 @@ const MessageBubble = memo(
 
       return (
         <div className="flex flex-wrap gap-2 mb-3">
-          {attachments.map(attachment => (
+          {attachments.map((attachment, idx) => (
             <AttachmentPreview
-              key={attachment.id}
+              key={`attachment-${attachment.id}-${idx}`}
               attachment={attachment}
               compact={false}
               showDownload={true}
             />
           ))}
+        </div>
+      );
+    };
+
+    // Render recovered content notice
+    const renderRecoveryNotice = () => {
+      if (!msg.isRecovered) return null;
+
+      return (
+        <div className="bg-muted border-l-4 border-primary p-3 mt-2 rounded-r-lg">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary">
+                {msg.isIncomplete
+                  ? t('messages.content_incomplete') || '回答未完成'
+                  : t('messages.content_recovered') || '已恢复内容'}
+              </p>
+              <p className="text-xs text-text-muted mt-1">
+                {msg.isIncomplete
+                  ? t('messages.content_incomplete_desc') || '连接已断开，这是生成的部分内容'
+                  : t('messages.content_recovered_desc') || '页面刷新后已恢复之前的内容'}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // Render recovered content with typewriter effect (content is already processed by RecoveredMessageBubble)
+    const renderRecoveredContent = () => {
+      if (!msg.recoveredContent || msg.subtaskStatus !== 'RUNNING') return null;
+
+      return (
+        <div className="space-y-2">
+          {msg.recoveredContent ? (
+            <>
+              <MarkdownEditor.Markdown
+                source={msg.recoveredContent}
+                style={{ background: 'transparent' }}
+                wrapperElement={{ 'data-color-mode': theme }}
+                components={{
+                  a: ({ href, children, ...props }) => (
+                    <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+                      {children}
+                    </a>
+                  ),
+                }}
+              />
+              {/* Show copy and download buttons during streaming */}
+              <BubbleTools
+                contentToCopy={msg.recoveredContent}
+                tools={[
+                  {
+                    key: 'download',
+                    title: t('messages.download') || 'Download',
+                    icon: <Download className="h-4 w-4 text-text-muted" />,
+                    onClick: () => {
+                      const blob = new Blob([msg.recoveredContent || ''], {
+                        type: 'text/plain;charset=utf-8',
+                      });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'message.md';
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    },
+                  },
+                ]}
+              />
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-text-muted">
+              <span className="animate-pulse">●</span>
+              <span className="text-sm">{t('messages.thinking') || 'Thinking...'}</span>
+            </div>
+          )}
         </div>
       );
     };
@@ -574,10 +857,26 @@ const MessageBubble = memo(
                 {headerIcon}
                 <span className="font-semibold">{headerLabel}</span>
                 {timestampLabel && <span>{timestampLabel}</span>}
+                {msg.isRecovered && (
+                  <span className="text-primary text-xs">
+                    ({t('messages.recovered') || '已恢复'})
+                  </span>
+                )}
               </div>
             )}
             {isUserMessage && renderAttachments(msg.attachments)}
-            {renderMessageBody(msg, index)}
+            {/* Show recovered content if available, otherwise show normal content */}
+            {msg.recoveredContent && msg.subtaskStatus === 'RUNNING'
+              ? renderRecoveredContent()
+              : renderMessageBody(msg, index)}
+            {/* Show incomplete notice for completed but incomplete messages */}
+            {msg.isIncomplete && msg.subtaskStatus !== 'RUNNING' && renderRecoveryNotice()}
+            {/* Show copy button for user messages - always visible */}
+            {isUserMessage && (
+              <div className="absolute bottom-2 left-2 flex items-center gap-1 z-10">
+                <CopyButton content={msg.content} className="h-8 w-8 hover:bg-muted opacity-100" />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -591,6 +890,9 @@ const MessageBubble = memo(
       prevProps.msg.subtaskStatus === nextProps.msg.subtaskStatus &&
       prevProps.msg.subtaskId === nextProps.msg.subtaskId &&
       prevProps.msg.timestamp === nextProps.msg.timestamp &&
+      prevProps.msg.recoveredContent === nextProps.msg.recoveredContent &&
+      prevProps.msg.isRecovered === nextProps.msg.isRecovered &&
+      prevProps.msg.isIncomplete === nextProps.msg.isIncomplete &&
       prevProps.theme === nextProps.theme
     );
   }
