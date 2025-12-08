@@ -327,7 +327,15 @@
     "shells": "执行器",
     "sections": {
       "general": "通用"
-    }
+    },
+    "categories": {
+      "personal": "个人",
+      "group": "群组"
+    },
+    "group_management": "群组管理",
+    "group_models": "群组模型",
+    "group_shells": "群组执行器",
+    "group_teams": "群组智能体"
   },
   "notifications": {
     "enable": "启用浏览器通知",

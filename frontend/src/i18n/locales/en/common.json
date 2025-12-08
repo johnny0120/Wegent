@@ -319,7 +319,15 @@
     "shells": "Shells",
     "sections": {
       "general": "General"
-    }
+    },
+    "categories": {
+      "personal": "Personal",
+      "group": "Group"
+    },
+    "group_management": "Group Management",
+    "group_models": "Group Models",
+    "group_shells": "Group Shells",
+    "group_teams": "Group Teams"
   },
   "notifications": {
     "enable": "Enable Browser Notifications",

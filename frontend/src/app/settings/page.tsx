@@ -21,38 +21,65 @@ import TeamList from '@/features/settings/components/TeamList';
 import NotificationSettings from '@/features/settings/components/NotificationSettings';
 import ModelList from '@/features/settings/components/ModelList';
 import ShellList from '@/features/settings/components/ShellList';
+import GroupManagement from '@/features/settings/components/GroupManagement';
+import GroupModelList from '@/features/settings/components/GroupModelList';
+import GroupShellList from '@/features/settings/components/GroupShellList';
+import GroupTeamList from '@/features/settings/components/GroupTeamList';
 import { UserProvider } from '@/features/common/UserContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { GithubStarButton } from '@/features/layout/GithubStarButton';
+import { ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useTranslation('common');
 
-  // Tab index to name mapping
+  // State for expanded categories
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
+    personal: true,
+    group: false,
+  });
+
+  // Tab index to name mapping - new structure
   const tabIndexToName = useMemo(
     (): Record<number, string> => ({
       0: 'models',
       1: 'shells',
       2: 'team',
-      3: 'integrations',
-      4: 'notifications',
+      3: 'groups-management',
+      4: 'groups-models',
+      5: 'groups-shells',
+      6: 'groups-teams',
+      7: 'integrations',
+      8: 'notifications',
     }),
     []
   );
 
-  // Tab name to index mapping
+  // Tab name to index mapping - new structure
   const tabNameToIndex = useMemo(
     (): Record<string, number> => ({
       models: 0,
       shells: 1,
       team: 2,
-      integrations: 3,
-      notifications: 4,
+      'groups-management': 3,
+      'groups-models': 4,
+      'groups-shells': 5,
+      'groups-teams': 6,
+      integrations: 7,
+      notifications: 8,
     }),
     []
   );
+
+  // Toggle category expansion
+  const toggleCategory = (category: string) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [category]: !prev[category],
+    }));
+  };
   // Function to get initial tab index from URL
   const getInitialTabIndex = () => {
     const tabParam = searchParams.get('tab');
@@ -110,45 +137,134 @@ function DashboardContent() {
                 /* Desktop Layout */
                 <>
                   <Tab.List className="w-64 bg-base flex flex-col space-y-1 px-8 py-4 focus:outline-none">
-                    <Tab
-                      className={({ selected }) =>
-                        `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
-                          selected
-                            ? 'bg-muted text-text-primary'
-                            : 'text-text-muted hover:text-text-primary hover:bg-muted'
-                        }`
-                      }
-                    >
-                      <CpuChipIcon className="w-4 h-4" />
-                      <span>{t('settings.models')}</span>
-                    </Tab>
+                    {/* Personal Category */}
+                    <div className="mb-2">
+                      <button
+                        onClick={() => toggleCategory('personal')}
+                        className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-text-muted hover:text-text-primary transition-colors duration-200"
+                      >
+                        <span>{t('settings.categories.personal')}</span>
+                        {expandedCategories.personal ? (
+                          <ChevronDownIcon className="w-4 h-4" />
+                        ) : (
+                          <ChevronRightIcon className="w-4 h-4" />
+                        )}
+                      </button>
+                      {expandedCategories.personal && (
+                        <div className="ml-4 mt-1 space-y-1">
+                          <Tab
+                            className={({ selected }) =>
+                              `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
+                                selected
+                                  ? 'bg-muted text-text-primary'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                              }`
+                            }
+                          >
+                            <CpuChipIcon className="w-4 h-4" />
+                            <span>{t('settings.models')}</span>
+                          </Tab>
 
-                    <Tab
-                      className={({ selected }) =>
-                        `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
-                          selected
-                            ? 'bg-muted text-text-primary'
-                            : 'text-text-muted hover:text-text-primary hover:bg-muted'
-                        }`
-                      }
-                    >
-                      <CommandLineIcon className="w-4 h-4" />
-                      <span>{t('settings.shells')}</span>
-                    </Tab>
+                          <Tab
+                            className={({ selected }) =>
+                              `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
+                                selected
+                                  ? 'bg-muted text-text-primary'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                              }`
+                            }
+                          >
+                            <CommandLineIcon className="w-4 h-4" />
+                            <span>{t('settings.shells')}</span>
+                          </Tab>
 
-                    <Tab
-                      className={({ selected }) =>
-                        `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
-                          selected
-                            ? 'bg-muted text-text-primary'
-                            : 'text-text-muted hover:text-text-primary hover:bg-muted'
-                        }`
-                      }
-                    >
-                      <UsersIcon className="w-4 h-4" />
-                      <span>{t('settings.team')}</span>
-                    </Tab>
+                          <Tab
+                            className={({ selected }) =>
+                              `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
+                                selected
+                                  ? 'bg-muted text-text-primary'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                              }`
+                            }
+                          >
+                            <UsersIcon className="w-4 h-4" />
+                            <span>{t('settings.team')}</span>
+                          </Tab>
+                        </div>
+                      )}
+                    </div>
 
+                    {/* Group Category */}
+                    <div className="mb-2">
+                      <button
+                        onClick={() => toggleCategory('group')}
+                        className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-text-muted hover:text-text-primary transition-colors duration-200"
+                      >
+                        <span>{t('settings.categories.group')}</span>
+                        {expandedCategories.group ? (
+                          <ChevronDownIcon className="w-4 h-4" />
+                        ) : (
+                          <ChevronRightIcon className="w-4 h-4" />
+                        )}
+                      </button>
+                      {expandedCategories.group && (
+                        <div className="ml-4 mt-1 space-y-1">
+                          <Tab
+                            className={({ selected }) =>
+                              `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
+                                selected
+                                  ? 'bg-muted text-text-primary'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                              }`
+                            }
+                          >
+                            <UsersIcon className="w-4 h-4" />
+                            <span>{t('settings.group_management')}</span>
+                          </Tab>
+
+                          <Tab
+                            className={({ selected }) =>
+                              `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
+                                selected
+                                  ? 'bg-muted text-text-primary'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                              }`
+                            }
+                          >
+                            <CpuChipIcon className="w-4 h-4" />
+                            <span>{t('settings.group_models')}</span>
+                          </Tab>
+
+                          <Tab
+                            className={({ selected }) =>
+                              `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
+                                selected
+                                  ? 'bg-muted text-text-primary'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                              }`
+                            }
+                          >
+                            <CommandLineIcon className="w-4 h-4" />
+                            <span>{t('settings.group_shells')}</span>
+                          </Tab>
+
+                          <Tab
+                            className={({ selected }) =>
+                              `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
+                                selected
+                                  ? 'bg-muted text-text-primary'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                              }`
+                            }
+                          >
+                            <UsersIcon className="w-4 h-4" />
+                            <span>{t('settings.group_teams')}</span>
+                          </Tab>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Other sections */}
                     <Tab
                       className={({ selected }) =>
                         `w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-md transition-colors duration-200 focus:outline-none ${
@@ -187,6 +303,18 @@ function DashboardContent() {
                       <Tab.Panel className="focus:outline-none flex-1 flex flex-col min-h-0 overflow-hidden">
                         <TeamList />
                       </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none flex-1 flex flex-col min-h-0 overflow-y-auto">
+                        <GroupManagement />
+                      </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none flex-1 flex flex-col min-h-0 overflow-y-auto">
+                        <GroupModelList />
+                      </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none flex-1 flex flex-col min-h-0 overflow-y-auto">
+                        <GroupShellList />
+                      </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none flex-1 flex flex-col min-h-0 overflow-hidden">
+                        <GroupTeamList />
+                      </Tab.Panel>
                       <Tab.Panel className="focus:outline-none overflow-y-auto">
                         <GitHubIntegration />
                       </Tab.Panel>
@@ -200,7 +328,7 @@ function DashboardContent() {
                 /* Mobile Layout */
                 <>
                   <div className="bg-base border-b border-border">
-                    <Tab.List className="flex space-x-1 px-2 py-2">
+                    <Tab.List className="flex space-x-1 px-2 py-2 overflow-x-auto">
                       <Tab
                         className={({ selected }) =>
                           `flex-1 flex items-center justify-center space-x-1 px-2 py-2 text-xs rounded-md transition-colors duration-200 focus:outline-none ${
@@ -249,6 +377,58 @@ function DashboardContent() {
                           }`
                         }
                       >
+                        <UsersIcon className="w-3 h-3" />
+                        <span className="hidden xs:inline">{t('settings.group_management')}</span>
+                      </Tab>
+
+                      <Tab
+                        className={({ selected }) =>
+                          `flex-1 flex items-center justify-center space-x-1 px-2 py-2 text-xs rounded-md transition-colors duration-200 focus:outline-none ${
+                            selected
+                              ? 'bg-muted text-text-primary'
+                              : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                          }`
+                        }
+                      >
+                        <CpuChipIcon className="w-3 h-3" />
+                        <span className="hidden xs:inline">{t('settings.group_models')}</span>
+                      </Tab>
+
+                      <Tab
+                        className={({ selected }) =>
+                          `flex-1 flex items-center justify-center space-x-1 px-2 py-2 text-xs rounded-md transition-colors duration-200 focus:outline-none ${
+                            selected
+                              ? 'bg-muted text-text-primary'
+                              : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                          }`
+                        }
+                      >
+                        <CommandLineIcon className="w-3 h-3" />
+                        <span className="hidden xs:inline">{t('settings.group_shells')}</span>
+                      </Tab>
+
+                      <Tab
+                        className={({ selected }) =>
+                          `flex-1 flex items-center justify-center space-x-1 px-2 py-2 text-xs rounded-md transition-colors duration-200 focus:outline-none ${
+                            selected
+                              ? 'bg-muted text-text-primary'
+                              : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                          }`
+                        }
+                      >
+                        <UsersIcon className="w-3 h-3" />
+                        <span className="hidden xs:inline">{t('settings.group_teams')}</span>
+                      </Tab>
+
+                      <Tab
+                        className={({ selected }) =>
+                          `flex-1 flex items-center justify-center space-x-1 px-2 py-2 text-xs rounded-md transition-colors duration-200 focus:outline-none ${
+                            selected
+                              ? 'bg-muted text-text-primary'
+                              : 'text-text-muted hover:text-text-primary hover:bg-muted'
+                          }`
+                        }
+                      >
                         <PuzzlePieceIcon className="w-3 h-3" />
                         <span className="hidden xs:inline">{t('settings.integrations')}</span>
                       </Tab>
@@ -278,6 +458,18 @@ function DashboardContent() {
                       </Tab.Panel>
                       <Tab.Panel className="focus:outline-none">
                         <TeamList />
+                      </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none">
+                        <GroupManagement />
+                      </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none">
+                        <GroupModelList />
+                      </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none">
+                        <GroupShellList />
+                      </Tab.Panel>
+                      <Tab.Panel className="focus:outline-none">
+                        <GroupTeamList />
                       </Tab.Panel>
                       <Tab.Panel className="focus:outline-none">
                         <GitHubIntegration />
