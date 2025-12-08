@@ -461,38 +461,38 @@ class ModelAggregationService:
     def list_group_available_models(
         self,
         db: Session,
-        group_id: int,
+        group_name: str,
         current_user: User,
         shell_type: Optional[str] = None,
         include_config: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         List models available to a specific group.
-        
+
         Returns models in the following priority order:
-        1. Group-specific models (group_id = group_id)
-        2. Public models (user_id = 0, group_id = null)
-        
+        1. Group-specific models (namespace = group_name)
+        2. Public models (user_id = 0, namespace = 'default')
+
         Note: Personal user models are NOT included in group context.
-        
+
         Args:
             db: Database session
-            group_id: Group ID to get models for
+            group_name: Group name to get models for
             current_user: Current user (for permission context)
             shell_type: Optional shell type to filter compatible models
             include_config: Whether to include full config in response
-            
+
         Returns:
             List of unified model dictionaries with 'type' field ('group' or 'public')
         """
         from app.services.kind import kind_service
         from app.services.adapters.public_model import public_model_service
-        
+
         result_models = []
-        
-        # 1. Get group-specific models (group_id = group_id)
+
+        # 1. Get group-specific models (namespace = group_name)
         group_model_resources = kind_service.list_resources_by_group(
-            group_id=group_id, kind="Model", namespace="default"
+            group_name=group_name, kind="Model", namespace=group_name
         )
         
         for resource in group_model_resources:

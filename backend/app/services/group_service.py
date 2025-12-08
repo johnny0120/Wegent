@@ -106,22 +106,22 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         self.db = db
 
     def get_user_role_in_group(
-        self, group_id: int, user_id: int, check_parents: bool = True
+        self, group_name: str, user_id: int, check_parents: bool = True
     ) -> Optional[GroupRole]:
         """
         Get user's role in a group, considering parent groups if check_parents=True
         Returns the highest role found in the group hierarchy
         """
         if check_parents:
-            # Get all ancestor groups (including current group)
-            ancestor_ids = self._get_ancestor_group_ids(group_id)
+            # Get all ancestor group names (including current group)
+            ancestor_names = self._get_ancestor_group_names(group_name)
 
             # Query all memberships in ancestor groups
             memberships = (
                 self.db.query(GroupMember)
                 .filter(
                     and_(
-                        GroupMember.group_id.in_(ancestor_ids),
+                        GroupMember.group_name.in_(ancestor_names),
                         GroupMember.user_id == user_id,
                         GroupMember.is_active == True,
                     )
@@ -141,7 +141,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 self.db.query(GroupMember)
                 .filter(
                     and_(
-                        GroupMember.group_id == group_id,
+                        GroupMember.group_name == group_name,
                         GroupMember.user_id == user_id,
                         GroupMember.is_active == True,
                     )
@@ -150,30 +150,30 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             )
             return GroupRole(membership.role) if membership else None
 
-    def _get_ancestor_group_ids(self, group_id: int) -> List[int]:
-        """Get all ancestor group IDs including the group itself"""
-        ancestor_ids = [group_id]
-        current_id = group_id
+    def _get_ancestor_group_names(self, group_name: str) -> List[str]:
+        """Get all ancestor group names including the group itself"""
+        ancestor_names = [group_name]
+        current_name = group_name
 
         # Recursive query to find all parent groups
-        while current_id:
-            group = self.db.query(Group).filter(Group.id == current_id).first()
-            if group and group.parent_id and group.parent_id not in ancestor_ids:
-                ancestor_ids.append(group.parent_id)
-                current_id = group.parent_id
+        while current_name:
+            group = self.db.query(Group).filter(Group.name == current_name).first()
+            if group and group.parent_name and group.parent_name not in ancestor_names:
+                ancestor_names.append(group.parent_name)
+                current_name = group.parent_name
             else:
                 break
 
-        return ancestor_ids
+        return ancestor_names
 
     def check_permission(
-        self, group_id: int, user_id: int, permission: str
+        self, group_name: str, user_id: int, permission: str
     ) -> Tuple[bool, Optional[GroupRole]]:
         """
         Check if user has permission in group
         Returns (has_permission, user_role)
         """
-        role = self.get_user_role_in_group(group_id, user_id)
+        role = self.get_user_role_in_group(group_name, user_id)
         if not role:
             return False, None
         return GroupPermission.has_permission(role, permission), role
@@ -182,9 +182,17 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         self, group_create: GroupCreate, owner_user_id: int
     ) -> Group:
         """Create a new group with owner as the creator"""
+        # Check if group name already exists
+        existing = self.db.query(Group).filter(Group.name == group_create.name).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Group name '{group_create.name}' already exists"
+            )
+
         # Validate parent group if specified
-        if group_create.parent_id:
-            parent_group = self.db.query(Group).filter(Group.id == group_create.parent_id).first()
+        if group_create.parent_name:
+            parent_group = self.db.query(Group).filter(Group.name == group_create.parent_name).first()
             if not parent_group:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -193,7 +201,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
 
             # Check if user has Maintainer+ permission in parent group
             has_perm, _ = self.check_permission(
-                group_create.parent_id, owner_user_id, "create"
+                group_create.parent_name, owner_user_id, "create"
             )
             if not has_perm:
                 raise HTTPException(
@@ -204,7 +212,8 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         # Create group
         group = Group(
             name=group_create.name,
-            parent_id=group_create.parent_id,
+            display_name=group_create.display_name or group_create.name,
+            parent_name=group_create.parent_name,
             owner_user_id=owner_user_id,
             description=group_create.description,
             visibility="private",
@@ -214,7 +223,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
 
         # Add owner as member
         member = GroupMember(
-            group_id=group.id,
+            group_name=group.name,
             user_id=owner_user_id,
             role=GroupRole.OWNER.value,
             invited_by_user_id=None,
@@ -232,7 +241,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         # Get groups where user is a member
         query = (
             self.db.query(Group)
-            .join(GroupMember, Group.id == GroupMember.group_id)
+            .join(GroupMember, Group.name == GroupMember.group_name)
             .filter(
                 and_(
                     GroupMember.user_id == user_id,
@@ -254,28 +263,29 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 self.db.query(func.count(GroupMember.id))
                 .filter(
                     and_(
-                        GroupMember.group_id == group.id,
+                        GroupMember.group_name == group.name,
                         GroupMember.is_active == True,
                     )
                 )
                 .scalar()
             )
 
-            # Get resource count
+            # Get resource count (namespace != 'default' means it's a group resource)
             resource_count = (
                 self.db.query(func.count(Kind.id))
-                .filter(and_(Kind.group_id == group.id, Kind.is_active == True))
+                .filter(and_(Kind.namespace == group.name, Kind.is_active == True))
                 .scalar()
             )
 
             # Get user's role
-            role = self.get_user_role_in_group(group.id, user_id, check_parents=False)
+            role = self.get_user_role_in_group(group.name, user_id, check_parents=False)
 
             items.append(
                 GroupListItem(
                     id=group.id,
                     name=group.name,
-                    parent_id=group.parent_id,
+                    display_name=group.display_name,
+                    parent_name=group.parent_name,
                     description=group.description,
                     member_count=member_count,
                     resource_count=resource_count,
@@ -286,16 +296,16 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
 
         return items, total
 
-    def get_group_detail(self, group_id: int, user_id: int) -> GroupDetail:
+    def get_group_detail(self, group_name: str, user_id: int) -> GroupDetail:
         """Get group detail with permission check"""
-        group = self.db.query(Group).filter(Group.id == group_id).first()
+        group = self.db.query(Group).filter(Group.name == group_name).first()
         if not group:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
             )
 
         # Check view permission
-        has_perm, role = self.check_permission(group_id, user_id, "view")
+        has_perm, role = self.check_permission(group_name, user_id, "view")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -306,14 +316,14 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         member_count = (
             self.db.query(func.count(GroupMember.id))
             .filter(
-                and_(GroupMember.group_id == group_id, GroupMember.is_active == True)
+                and_(GroupMember.group_name == group_name, GroupMember.is_active == True)
             )
             .scalar()
         )
 
         resource_count = (
             self.db.query(func.count(Kind.id))
-            .filter(and_(Kind.group_id == group_id, Kind.is_active == True))
+            .filter(and_(Kind.namespace == group_name, Kind.is_active == True))
             .scalar()
         )
 
@@ -324,7 +334,8 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         return GroupDetail(
             id=group.id,
             name=group.name,
-            parent_id=group.parent_id,
+            display_name=group.display_name,
+            parent_name=group.parent_name,
             owner_user_id=group.owner_user_id,
             visibility=group.visibility,
             description=group.description,
@@ -338,26 +349,26 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         )
 
     def update_group(
-        self, group_id: int, user_id: int, group_update: GroupUpdate
+        self, group_name: str, user_id: int, group_update: GroupUpdate
     ) -> Group:
         """Update group information"""
         # Check permission
-        has_perm, _ = self.check_permission(group_id, user_id, "edit")
+        has_perm, _ = self.check_permission(group_name, user_id, "edit")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No permission to edit this group"
             )
 
-        group = self.db.query(Group).filter(Group.id == group_id).first()
+        group = self.db.query(Group).filter(Group.name == group_name).first()
         if not group:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
             )
 
-        # Update fields
-        if group_update.name is not None:
-            group.name = group_update.name
+        # Update fields (name cannot be changed)
+        if group_update.display_name is not None:
+            group.display_name = group_update.display_name
         if group_update.description is not None:
             group.description = group_update.description
 
@@ -365,17 +376,17 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         self.db.refresh(group)
         return group
 
-    def delete_group(self, group_id: int, user_id: int) -> None:
+    def delete_group(self, group_name: str, user_id: int) -> None:
         """Delete a group (only Owner can delete)"""
         # Check permission (any Owner can delete)
-        has_perm, role = self.check_permission(group_id, user_id, "delete_group")
+        has_perm, role = self.check_permission(group_name, user_id, "delete_group")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only group owners can delete the group"
             )
 
-        group = self.db.query(Group).filter(Group.id == group_id).first()
+        group = self.db.query(Group).filter(Group.name == group_name).first()
         if not group:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
@@ -384,7 +395,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         # Check if group has subgroups
         subgroups_count = (
             self.db.query(func.count(Group.id))
-            .filter(Group.parent_id == group_id)
+            .filter(Group.parent_name == group_name)
             .scalar()
         )
         if subgroups_count > 0:
@@ -396,7 +407,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         # Check if group has resources
         resources_count = (
             self.db.query(func.count(Kind.id))
-            .filter(Kind.group_id == group_id)
+            .filter(Kind.namespace == group_name)
             .scalar()
         )
         if resources_count > 0:
@@ -406,19 +417,19 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             )
 
         # Delete all group members first
-        self.db.query(GroupMember).filter(GroupMember.group_id == group_id).delete()
-        
+        self.db.query(GroupMember).filter(GroupMember.group_name == group_name).delete()
+
         # Hard delete group
         self.db.delete(group)
         self.db.commit()
 
     # Member management methods
     def list_group_members(
-        self, group_id: int, user_id: int, skip: int = 0, limit: int = 100
+        self, group_name: str, user_id: int, skip: int = 0, limit: int = 100
     ) -> Tuple[List[GroupMemberListItem], int]:
         """List group members"""
         # Check view permission
-        has_perm, _ = self.check_permission(group_id, user_id, "view")
+        has_perm, _ = self.check_permission(group_name, user_id, "view")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -430,7 +441,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             self.db.query(GroupMember)
             .options(joinedload(GroupMember.user), joinedload(GroupMember.invited_by))
             .filter(
-                and_(GroupMember.group_id == group_id, GroupMember.is_active == True)
+                and_(GroupMember.group_name == group_name, GroupMember.is_active == True)
             )
             .order_by(GroupMember.created_at.desc())
         )
@@ -454,11 +465,11 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         return items, total
 
     def invite_member(
-        self, group_id: int, inviter_user_id: int, invite: GroupMemberInvite
+        self, group_name: str, inviter_user_id: int, invite: GroupMemberInvite
     ) -> GroupMember:
         """Invite a member to the group"""
         # Check invite permission
-        has_perm, _ = self.check_permission(group_id, inviter_user_id, "invite")
+        has_perm, _ = self.check_permission(group_name, inviter_user_id, "invite")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -477,7 +488,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             self.db.query(GroupMember)
             .filter(
                 and_(
-                    GroupMember.group_id == group_id,
+                    GroupMember.group_name == group_name,
                     GroupMember.user_id == user.id,
                     GroupMember.is_active == True,
                 )
@@ -492,7 +503,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
 
         # Create membership
         member = GroupMember(
-            group_id=group_id,
+            group_name=group_name,
             user_id=user.id,
             role=invite.role.value,
             invited_by_user_id=inviter_user_id,
@@ -504,11 +515,11 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         return member
 
     def update_member_role(
-        self, group_id: int, user_id: int, target_user_id: int, update: GroupMemberUpdate
+        self, group_name: str, user_id: int, target_user_id: int, update: GroupMemberUpdate
     ) -> GroupMember:
         """Update member role"""
         # Check change_role permission
-        has_perm, role = self.check_permission(group_id, user_id, "change_role")
+        has_perm, role = self.check_permission(group_name, user_id, "change_role")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -520,7 +531,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             self.db.query(GroupMember)
             .filter(
                 and_(
-                    GroupMember.group_id == group_id,
+                    GroupMember.group_name == group_name,
                     GroupMember.user_id == target_user_id,
                     GroupMember.is_active == True,
                 )
@@ -539,9 +550,6 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 detail="Cannot change owner's role"
             )
 
-        # Allow multiple Owners - no special handling needed
-        # Just update the role directly
-
         member.role = update.role.value
         self.db.commit()
         self.db.refresh(member)
@@ -549,11 +557,11 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         return member
 
     def remove_member(
-        self, group_id: int, user_id: int, target_user_id: int
+        self, group_name: str, user_id: int, target_user_id: int
     ) -> None:
         """Remove a member from the group"""
         # Check remove_member permission
-        has_perm, _ = self.check_permission(group_id, user_id, "remove_member")
+        has_perm, _ = self.check_permission(group_name, user_id, "remove_member")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -565,7 +573,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             self.db.query(GroupMember)
             .filter(
                 and_(
-                    GroupMember.group_id == group_id,
+                    GroupMember.group_name == group_name,
                     GroupMember.user_id == target_user_id,
                     GroupMember.is_active == True,
                 )
@@ -584,7 +592,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 self.db.query(GroupMember)
                 .filter(
                     and_(
-                        GroupMember.group_id == group_id,
+                        GroupMember.group_name == group_name,
                         GroupMember.role == GroupRole.OWNER.value,
                         GroupMember.is_active == True,
                     )
@@ -598,23 +606,23 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 )
 
         # Transfer user's resources to group owner
-        group = self.db.query(Group).filter(Group.id == group_id).first()
+        group = self.db.query(Group).filter(Group.name == group_name).first()
         self.db.query(Kind).filter(
-            and_(Kind.group_id == group_id, Kind.user_id == target_user_id)
+            and_(Kind.namespace == group_name, Kind.user_id == target_user_id)
         ).update({Kind.user_id: group.owner_user_id})
 
         # Hard delete membership
         self.db.delete(member)
         self.db.commit()
 
-    def leave_group(self, group_id: int, user_id: int) -> None:
+    def leave_group(self, group_name: str, user_id: int) -> None:
         """User leaves a group"""
         # Get user's membership
         member = (
             self.db.query(GroupMember)
             .filter(
                 and_(
-                    GroupMember.group_id == group_id,
+                    GroupMember.group_name == group_name,
                     GroupMember.user_id == user_id,
                     GroupMember.is_active == True,
                 )
@@ -633,7 +641,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 self.db.query(GroupMember)
                 .filter(
                     and_(
-                        GroupMember.group_id == group_id,
+                        GroupMember.group_name == group_name,
                         GroupMember.role == GroupRole.OWNER.value,
                         GroupMember.is_active == True,
                     )
@@ -647,9 +655,9 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 )
 
         # Transfer user's resources to group owner
-        group = self.db.query(Group).filter(Group.id == group_id).first()
+        group = self.db.query(Group).filter(Group.name == group_name).first()
         self.db.query(Kind).filter(
-            and_(Kind.group_id == group_id, Kind.user_id == user_id)
+            and_(Kind.namespace == group_name, Kind.user_id == user_id)
         ).update({Kind.user_id: group.owner_user_id})
 
         # Hard delete membership
@@ -657,12 +665,12 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         self.db.commit()
 
     def transfer_ownership(
-        self, group_id: int, current_owner_id: int, new_owner_id: int
+        self, group_name: str, current_owner_id: int, new_owner_id: int
     ) -> None:
         """Transfer group ownership"""
         # Check transfer_ownership permission
         has_perm, role = self.check_permission(
-            group_id, current_owner_id, "transfer_ownership"
+            group_name, current_owner_id, "transfer_ownership"
         )
         if not has_perm or role != GroupRole.OWNER:
             raise HTTPException(
@@ -675,7 +683,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             self.db.query(GroupMember)
             .filter(
                 and_(
-                    GroupMember.group_id == group_id,
+                    GroupMember.group_name == group_name,
                     GroupMember.user_id == new_owner_id,
                     GroupMember.is_active == True,
                 )
@@ -703,7 +711,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             self.db.query(GroupMember)
             .filter(
                 and_(
-                    GroupMember.group_id == group_id,
+                    GroupMember.group_name == group_name,
                     GroupMember.user_id == current_owner_id,
                     GroupMember.is_active == True,
                 )
@@ -712,7 +720,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         )
 
         # Update group owner
-        group = self.db.query(Group).filter(Group.id == group_id).first()
+        group = self.db.query(Group).filter(Group.name == group_name).first()
         group.owner_user_id = new_owner_id
 
         # Update roles
@@ -722,11 +730,11 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         self.db.commit()
 
     def invite_all_users(
-        self, group_id: int, owner_id: int, role: GroupRole = GroupRole.REPORTER
+        self, group_name: str, owner_id: int, role: GroupRole = GroupRole.REPORTER
     ) -> int:
         """Invite all users to the group (Owner only)"""
         # Check permission (must be Owner)
-        has_perm, user_role = self.check_permission(group_id, owner_id, "invite")
+        has_perm, user_role = self.check_permission(group_name, owner_id, "invite")
         if not has_perm or user_role != GroupRole.OWNER:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -741,7 +749,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             m.user_id
             for m in self.db.query(GroupMember.user_id)
             .filter(
-                and_(GroupMember.group_id == group_id, GroupMember.is_active == True)
+                and_(GroupMember.group_name == group_name, GroupMember.is_active == True)
             )
             .all()
         }
@@ -751,7 +759,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         for user in all_users:
             if user.id not in existing_member_ids:
                 member = GroupMember(
-                    group_id=group_id,
+                    group_name=group_name,
                     user_id=user.id,
                     role=role.value,
                     invited_by_user_id=owner_id,
@@ -763,20 +771,20 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         return count
 
     def create_group_bot(
-        self, group_id: int, user_id: int, bot_data: dict
+        self, group_name: str, user_id: int, bot_data: dict
     ) -> dict:
         """Create a bot in a group with proper CRD structure"""
         from app.schemas.bot import BotCreate
         from app.services.adapters import bot_kinds_service
-        
+
         # Check create permission
-        has_perm, _ = self.check_permission(group_id, user_id, "create")
+        has_perm, _ = self.check_permission(group_name, user_id, "create")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No permission to create resources in this group"
             )
-        
+
         # Extract bot name
         bot_name = bot_data.get("name")
         if not bot_name:
@@ -784,35 +792,34 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Bot name is required"
             )
-        
+
         # Check if bot already exists
         existing = (
             self.db.query(Kind)
             .filter(
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Bot",
-                Kind.namespace == "default",
                 Kind.name == bot_name,
                 Kind.is_active == True,
             )
             .first()
         )
-        
+
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Bot '{bot_name}' already exists in this group"
             )
-        
+
         # Convert flat bot_data to BotCreate schema
         bot_create = BotCreate(**bot_data)
-        
+
         # Use bot_kinds_service to create bot with proper CRD structure
         bot_dict = bot_kinds_service.create_with_user(
             db=self.db, obj_in=bot_create, user_id=user_id
         )
-        
-        # Update the created bot to belong to the group
+
+        # Update the created bot to belong to the group (change namespace)
         bot_kind = (
             self.db.query(Kind)
             .filter(
@@ -822,55 +829,53 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             )
             .first()
         )
-        
+
         if bot_kind:
-            bot_kind.group_id = group_id
+            bot_kind.namespace = group_name
             self.db.commit()
             self.db.refresh(bot_kind)
-        
-        # Return the complete bot dict with all fields including agent_config
+
         return bot_dict
 
     def update_group_bot(
-        self, group_id: int, user_id: int, bot_id: int, bot_data: dict
+        self, group_name: str, user_id: int, bot_id: int, bot_data: dict
     ) -> dict:
         """Update a bot in a group with proper CRD structure"""
         from app.schemas.bot import BotUpdate
         from app.services.adapters import bot_kinds_service
-        
+
         # Check edit permission
-        has_perm, _ = self.check_permission(group_id, user_id, "edit")
+        has_perm, _ = self.check_permission(group_name, user_id, "edit")
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No permission to edit resources in this group"
             )
-        
+
         # Find existing bot
         existing = (
             self.db.query(Kind)
             .filter(
                 Kind.id == bot_id,
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Bot",
                 Kind.is_active == True,
             )
             .first()
         )
-        
+
         if not existing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Bot with id '{bot_id}' not found in this group"
             )
-        
+
         # Convert flat bot_data to BotUpdate schema
         bot_update = BotUpdate(**bot_data)
-        
+
         # Use bot_kinds_service to update bot with proper CRD structure
         bot_dict = bot_kinds_service.update_with_user(
             db=self.db, bot_id=bot_id, obj_in=bot_update, user_id=existing.user_id
         )
-        
-        # Return the complete bot dict with all fields including agent_config
+
         return bot_dict

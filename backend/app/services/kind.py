@@ -20,17 +20,16 @@ class KindService:
         service = KindServiceFactory.get_service(kind)
         return service.list_resources(user_id, namespace)
 
-    def list_resources_by_group(self, group_id: int, kind: str, namespace: str) -> List[Kind]:
+    def list_resources_by_group(self, group_name: str, kind: str, namespace: str) -> List[Kind]:
         """List all resources of a specific kind in a namespace for a group"""
         from app.db.session import SessionLocal
-        
+
         with SessionLocal() as db:
             resources = (
                 db.query(Kind)
                 .filter(
-                    Kind.group_id == group_id,
+                    Kind.namespace == group_name,
                     Kind.kind == kind,
-                    Kind.namespace == namespace,
                     Kind.is_active == True
                 )
                 .all()

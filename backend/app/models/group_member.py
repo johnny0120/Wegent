@@ -20,7 +20,7 @@ class GroupMember(Base):
     __tablename__ = "group_members"
 
     id = Column(Integer, primary_key=True, index=True)
-    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False, index=True)
+    group_name = Column(String(100), ForeignKey("groups.name"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # Owner, Maintainer, Developer, Reporter
     invited_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -29,7 +29,7 @@ class GroupMember(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # Relationships
-    group = relationship("Group", back_populates="members")
+    group = relationship("Group", foreign_keys=[group_name], backref="group_members")
     user = relationship("User", foreign_keys=[user_id])
     invited_by = relationship("User", foreign_keys=[invited_by_user_id])
 

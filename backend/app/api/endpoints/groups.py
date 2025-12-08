@@ -40,6 +40,18 @@ def get_group_service(db: Session = Depends(get_db)) -> GroupService:
     return GroupService(db)
 
 
+def get_group_name_by_id(group_id: int, db: Session) -> str:
+    """Helper function to get group name by ID"""
+    from app.models.group import Group
+    group = db.query(Group).filter(Group.id == group_id).first()
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+    return group.name
+
+
 # Group Management APIs
 @router.get("", response_model=GroupListResponse)
 async def list_groups(
@@ -65,7 +77,7 @@ async def create_group(
     group = group_service.create_group(
         group_create=group_create, owner_user_id=current_user.id
     )
-    return group_service.get_group_detail(group.id, current_user.id)
+    return group_service.get_group_detail(group.name, current_user.id)
 
 
 @router.get("/{group_id}", response_model=GroupDetail)
@@ -73,9 +85,11 @@ async def get_group(
     group_id: int,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Get group detail"""
-    return group_service.get_group_detail(group_id, current_user.id)
+    group_name = get_group_name_by_id(group_id, db)
+    return group_service.get_group_detail(group_name, current_user.id)
 
 
 @router.put("/{group_id}", response_model=GroupDetail)
@@ -84,10 +98,12 @@ async def update_group(
     group_update: GroupUpdate,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Update group information (Maintainer+ permission required)"""
-    group_service.update_group(group_id, current_user.id, group_update)
-    return group_service.get_group_detail(group_id, current_user.id)
+    group_name = get_group_name_by_id(group_id, db)
+    group_service.update_group(group_name, current_user.id, group_update)
+    return group_service.get_group_detail(group_name, current_user.id)
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -95,9 +111,11 @@ async def delete_group(
     group_id: int,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Delete a group (Owner only, must have no subgroups or resources)"""
-    group_service.delete_group(group_id, current_user.id)
+    group_name = get_group_name_by_id(group_id, db)
+    group_service.delete_group(group_name, current_user.id)
     return None
 
 
@@ -112,7 +130,7 @@ async def list_group_members(
 ):
     """Get list of group members"""
     items, total = group_service.list_group_members(
-        group_id=group_id, user_id=current_user.id, skip=skip, limit=limit
+        group_name=group_name, user_id=current_user.id, skip=skip, limit=limit
     )
     return GroupMemberListResponse(total=total, items=items)
 
@@ -125,7 +143,7 @@ async def invite_member(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Invite a user to the group (Maintainer+ permission required)"""
-    member = group_service.invite_member(group_id, current_user.id, invite)
+    member = group_service.invite_member(group_name, current_user.id, invite)
     return {"message": "Member invited successfully", "member_id": member.id}
 
 
@@ -152,7 +170,7 @@ async def remove_member(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Remove a member from the group (Maintainer+ permission required)"""
-    group_service.remove_member(group_id, current_user.id, user_id)
+    group_service.remove_member(group_name, current_user.id, user_id)
     return None
 
 
@@ -164,7 +182,7 @@ async def invite_all_users(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Invite all system users to the group with default Reporter role (Owner only)"""
-    count = group_service.invite_all_users(group_id, current_user.id, request.role)
+    count = group_service.invite_all_users(group_name, current_user.id, request.role)
     return {"message": f"Successfully invited {count} users", "count": count}
 
 
@@ -175,7 +193,7 @@ async def leave_group(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Leave a group (not available for Owner, must transfer ownership first)"""
-    group_service.leave_group(group_id, current_user.id)
+    group_service.leave_group(group_name, current_user.id)
     return None
 
 
@@ -205,7 +223,7 @@ async def list_group_models(
 ):
     """Get models in this group (Reporter+ permission required)"""
     # Check view permission
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -217,7 +235,7 @@ async def list_group_models(
 
     # Query models in this group
     query = db.query(Kind).filter(
-        Kind.group_id == group_id,
+        Kind.namespace == group_name,
         Kind.kind == "Model",
         Kind.is_active == True
     )
@@ -251,7 +269,7 @@ async def get_group_bot(
 ):
     """Get a bot detail in the specified group"""
     # Check view permission
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -265,7 +283,7 @@ async def get_group_bot(
         db.query(Kind)
         .filter(
             Kind.id == bot_id,
-            Kind.group_id == group_id,
+            Kind.namespace == group_name,
             Kind.kind == "Bot",
             Kind.is_active == True,
         )
@@ -299,7 +317,7 @@ async def list_group_bots(
 ):
     """Get bots in this group (Reporter+ permission required)"""
     # Check view permission
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -311,7 +329,7 @@ async def list_group_bots(
 
     # Query bots in this group
     query = db.query(Kind).filter(
-        Kind.group_id == group_id,
+        Kind.namespace == group_name,
         Kind.kind == "Bot",
         Kind.is_active == True
     )
@@ -346,7 +364,7 @@ async def create_group_bot(
     Create a new bot in the specified group (Developer+ permission required)
     """
     try:
-        bot = group_service.create_group_bot(group_id, current_user.id, bot_data)
+        bot = group_service.create_group_bot(group_name, current_user.id, bot_data)
         logger.info(
             f"Created group Bot resource: name='{bot['name']}', "
             f"namespace='{bot.get('namespace', 'default')}', group_id={group_id}, "
@@ -379,7 +397,7 @@ async def update_group_bot(
     Update a bot in the specified group (Developer+ permission required)
     """
     try:
-        bot = group_service.update_group_bot(group_id, current_user.id, bot_id, bot_data)
+        bot = group_service.update_group_bot(group_name, current_user.id, bot_id, bot_data)
         logger.info(
             f"Updated group Bot resource: id='{bot_id}', "
             f"group_id={group_id}, user_id={current_user.id}, resource_id={bot['id']}"
@@ -410,7 +428,7 @@ async def list_group_teams(
 ):
     """Get teams in this group (Reporter+ permission required)"""
     # Check view permission
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -421,7 +439,7 @@ async def list_group_teams(
 
     # Query teams in this group
     query = db.query(Kind).filter(
-        Kind.group_id == group_id,
+        Kind.namespace == group_name,
         Kind.kind == "Team",
         Kind.is_active == True
     )
@@ -457,7 +475,7 @@ async def create_group_model(
     Create a new model in the specified group (Developer+ permission required)
     """
     # Check if user has create permission in the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "create")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "create")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -477,7 +495,7 @@ async def create_group_model(
         existing = (
             db.query(Kind)
             .filter(
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Model",
                 Kind.namespace == model_data["metadata"]["namespace"],
                 Kind.name == model_data["metadata"]["name"],
@@ -501,7 +519,7 @@ async def create_group_model(
         # Create new group model
         db_resource = Kind(
             user_id=current_user.id,  # Creator user ID
-            group_id=group_id,        # Group ownership
+            group_name=group_name,        # Group ownership
             kind="Model",
             name=model_data["metadata"]["name"],
             namespace=model_data["metadata"]["namespace"],
@@ -559,7 +577,7 @@ async def get_group_unified_models(
     Note: Personal user models are NOT included in group context.
     """
     # Check if user has access to the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -569,7 +587,7 @@ async def get_group_unified_models(
     # Delegate to service layer
     models = model_aggregation_service.list_group_available_models(
         db=db,
-        group_id=group_id,
+        group_name=group_name,
         current_user=current_user,
         shell_type=shell_type,
         include_config=include_config,
@@ -591,7 +609,7 @@ async def update_group_model(
     Update a model in the specified group (Developer+ permission required)
     """
     # Check if user has edit permission in the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "edit")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "edit")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -611,7 +629,7 @@ async def update_group_model(
         existing = (
             db.query(Kind)
             .filter(
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Model",
                 Kind.name == model_id,
                 Kind.is_active == True,
@@ -678,7 +696,7 @@ async def delete_group_model(
     Delete a model from the specified group (Maintainer+ permission required)
     """
     # Check if user has delete permission in the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "delete")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "delete")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -693,7 +711,7 @@ async def delete_group_model(
         existing = (
             db.query(Kind)
             .filter(
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Model",
                 Kind.name == model_id,
                 Kind.is_active == True,
@@ -739,7 +757,7 @@ async def list_group_shells(
 ):
     """Get shells in this group (Reporter+ permission required)"""
     # Check view permission
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -750,7 +768,7 @@ async def list_group_shells(
 
     # Query shells in this group
     query = db.query(Kind).filter(
-        Kind.group_id == group_id,
+        Kind.namespace == group_name,
         Kind.kind == "Shell",
         Kind.is_active == True
     )
@@ -792,7 +810,7 @@ async def get_group_unified_shells(
     Note: Personal user shells are NOT included in group context.
     """
     # Check if user has access to the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "view")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -805,7 +823,7 @@ async def get_group_unified_shells(
     group_shells = (
         db.query(Kind)
         .filter(
-            Kind.group_id == group_id,
+            Kind.namespace == group_name,
             Kind.kind == "Shell",
             Kind.is_active == True
         )
@@ -876,7 +894,7 @@ async def create_group_shell(
     Create a new shell in the specified group (Developer+ permission required)
     """
     # Check if user has create permission in the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "create")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "create")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -890,7 +908,7 @@ async def create_group_shell(
         existing = (
             db.query(Kind)
             .filter(
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Shell",
                 Kind.namespace == shell_data["metadata"]["namespace"],
                 Kind.name == shell_data["metadata"]["name"],
@@ -908,7 +926,7 @@ async def create_group_shell(
         # Create new group shell
         db_resource = Kind(
             user_id=current_user.id,  # Creator user ID
-            group_id=group_id,        # Group ownership
+            group_name=group_name,        # Group ownership
             kind="Shell",
             name=shell_data["metadata"]["name"],
             namespace=shell_data["metadata"]["namespace"],
@@ -952,7 +970,7 @@ async def update_group_shell(
     Update a shell in the specified group (Developer+ permission required)
     """
     # Check if user has edit permission in the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "edit")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "edit")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -966,7 +984,7 @@ async def update_group_shell(
         existing = (
             db.query(Kind)
             .filter(
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Shell",
                 Kind.name == shell_id,
                 Kind.is_active == True,
@@ -1018,7 +1036,7 @@ async def delete_group_shell(
     Delete a shell from the specified group (Maintainer+ permission required)
     """
     # Check if user has delete permission in the group
-    has_perm, _ = group_service.check_permission(group_id, current_user.id, "delete")
+    has_perm, _ = group_service.check_permission(group_name, current_user.id, "delete")
     if not has_perm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1032,7 +1050,7 @@ async def delete_group_shell(
         existing = (
             db.query(Kind)
             .filter(
-                Kind.group_id == group_id,
+                Kind.namespace == group_name,
                 Kind.kind == "Shell",
                 Kind.name == shell_id,
                 Kind.is_active == True,
