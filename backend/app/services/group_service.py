@@ -106,7 +106,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         self.db = db
 
     def get_user_role_in_group(
-        self, group_id: int, user_id: int, check_parents: bool = True
+        self, group_name: str, user_id: int, check_parents: bool = True
     ) -> Optional[GroupRole]:
         """
         Get user's role in a group, considering parent groups if check_parents=True

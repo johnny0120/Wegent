@@ -73,7 +73,7 @@ Wegent 的组功能支持组织级别的协作和资源共享，类似于 GitLab
 
 ## 数据库结构
 
-### Groups（组）表
+### Namespace（组）表
 - `id` - 主键
 - `name` - 组名称
 - `parent_id` - 父组 ID（可为空，用于层级结构）
@@ -83,7 +83,7 @@ Wegent 的组功能支持组织级别的协作和资源共享，类似于 GitLab
 - `is_active` - 激活状态
 - `created_at`, `updated_at` - 时间戳
 
-### Group Members（组成员）表
+### Namespace Members（组成员）表
 - `id` - 主键
 - `group_id` - 外键到 groups
 - `user_id` - 外键到 users

@@ -23,21 +23,18 @@ class Group(Base):
     - Nested child: "parent/child/grandchild"
     """
 
-    __tablename__ = "groups"
+    __tablename__ = "namespace"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, unique=True, index=True)  # Path-based: "parent/child"
     display_name = Column(String(100), nullable=True)
-    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    owner_user_id = Column(Integer, nullable=False, index=True)
     visibility = Column(String(20), default="private")  # Reserved for future use
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
-    # Relationships
-    owner = relationship("User", foreign_keys=[owner_user_id])
-    members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
 
     @property
     def parent_path(self) -> str:

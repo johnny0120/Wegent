@@ -17,21 +17,16 @@ from app.db.base import Base
 class GroupMember(Base):
     """GroupMember model for managing user roles within groups"""
 
-    __tablename__ = "group_members"
+    __tablename__ = "namespace_members"
 
     id = Column(Integer, primary_key=True, index=True)
-    group_name = Column(String(100), ForeignKey("groups.name"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    group_name = Column(String(100), nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
     role = Column(String(20), nullable=False)  # Owner, Maintainer, Developer, Reporter
-    invited_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    invited_by_user_id = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-
-    # Relationships
-    group = relationship("Group", foreign_keys=[group_name], backref="group_members")
-    user = relationship("User", foreign_keys=[user_id])
-    invited_by = relationship("User", foreign_keys=[invited_by_user_id])
 
     __table_args__ = (
         {

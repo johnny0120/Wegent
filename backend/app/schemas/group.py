@@ -90,6 +90,7 @@ class GroupListResponse(BaseModel):
 
 class GroupDetail(GroupInDB):
     """Detailed group information"""
+    parent_name: Optional[str] = None  # Parent group path
     member_count: int
     resource_count: int
     my_role: GroupRole

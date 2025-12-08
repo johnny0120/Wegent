@@ -91,7 +91,6 @@ class PublicModelService(BaseService[Kind, ModelCreate, ModelUpdate]):
             name=obj_in.name,
             namespace="default",
             json=json_data,
-            # group_id removed - using namespace,
             is_active=obj_in.is_active if obj_in.is_active is not None else True,
         )
         db.add(db_obj)
@@ -172,7 +171,6 @@ class PublicModelService(BaseService[Kind, ModelCreate, ModelUpdate]):
                         name=it.name,
                         namespace="default",
                         json=json_data,
-                        # group_id removed - using namespace,
                         is_active=getattr(it, "is_active", True),  # type: ignore[attr-defined]
                     )
                     db.add(db_obj)

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Add groups tables and migrate public resources to kinds
+"""Add namespace tables and migrate public resources to kinds
 
 Revision ID: b7c8d9e0f1a2
 Revises: 2b3c4d5e6f7g
@@ -24,14 +24,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """
-    1. Create groups and group_members tables
+    1. Create namespace and namespace_members tables
     2. Migrate public_models to kinds with user_id=0, kind='Model'
     3. Migrate public_shells to kinds with user_id=0, kind='Shell'
     4. Drop public_models and public_shells tables
     """
-    # Create groups table
+    # Create namespace table
     op.create_table(
-        'groups',
+        'namespace',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('name', sa.String(length=100), nullable=False),
         sa.Column('display_name', sa.String(length=100), nullable=True),
@@ -48,12 +48,12 @@ def upgrade() -> None:
         mysql_collate='utf8mb4_unicode_ci',
         mysql_engine='InnoDB'
     )
-    op.create_index('idx_groups_owner_user_id', 'groups', ['owner_user_id'], unique=False)
-    op.create_index('idx_groups_parent_name', 'groups', ['parent_name'], unique=False)
+    op.create_index('idx_groups_owner_user_id', 'namespace', ['owner_user_id'], unique=False)
+    op.create_index('idx_groups_parent_name', 'namespace', ['parent_name'], unique=False)
 
-    # Create group_members table
+    # Create namespace_members table
     op.create_table(
-        'group_members',
+        'namespace_members',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('group_name', sa.String(length=100), nullable=False),
         sa.Column('user_id', sa.Integer(), nullable=False),
@@ -67,8 +67,8 @@ def upgrade() -> None:
         mysql_collate='utf8mb4_unicode_ci',
         mysql_engine='InnoDB'
     )
-    op.create_index('idx_group_members_user_id', 'group_members', ['user_id'], unique=False)
-    op.create_index('idx_group_user', 'group_members', ['group_name', 'user_id'], unique=True)
+    op.create_index('idx_group_members_user_id', 'namespace_members', ['user_id'], unique=False)
+    op.create_index('idx_group_user', 'namespace_members', ['group_name', 'user_id'], unique=True)
 
     # Note: We use the existing namespace field in kinds table instead of adding group_id
     # Public resources: user_id=0, namespace=default
@@ -137,7 +137,7 @@ def downgrade() -> None:
     1. Recreate public_models and public_shells tables
     2. Migrate data back from kinds
     3. Remove group_name from kinds
-    4. Drop group_members and groups tables
+    4. Drop namespace_members and namespace tables
     """
     # Recreate public_models table
     op.create_table(
@@ -190,11 +190,11 @@ def downgrade() -> None:
     """)
 
     # Drop group tables
-    op.drop_index('idx_group_user', 'group_members')
-    op.drop_index('idx_group_members_user_id', 'group_members')
-    op.drop_table('group_members')
+    op.drop_index('idx_group_user', 'namespace_members')
+    op.drop_index('idx_group_members_user_id', 'namespace_members')
+    op.drop_table('namespace_members')
 
-    op.drop_index('idx_groups_parent_name', 'groups')
-    op.drop_index('idx_groups_owner_user_id', 'groups')
-    op.drop_constraint('idx_groups_name_unique', 'groups', type_='unique')
-    op.drop_table('groups')
+    op.drop_index('idx_groups_parent_name', 'namespace')
+    op.drop_index('idx_groups_owner_user_id', 'namespace')
+    op.drop_constraint('idx_groups_name_unique', 'namespace', type_='unique')
+    op.drop_table('namespace')
