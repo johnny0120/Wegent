@@ -260,7 +260,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 Kind.name == obj_in.name,
                 Kind.namespace == "default",
                 Kind.is_active == True,
-                Kind.group_id.is_(None),  # Exclude group bots
+                Kind.namespace == "default",  # Exclude group bots
             )
             .first()
         )
@@ -421,7 +421,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 Kind.user_id == user_id,
                 Kind.kind == "Bot",
                 Kind.is_active == True,
-                Kind.group_id.is_(None),  # Exclude group bots
+                Kind.namespace == "default",  # Exclude group bots
             )
             .order_by(Kind.created_at.desc())
             .offset(skip)
@@ -536,7 +536,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                         Kind.name == new_name,
                         Kind.namespace == "default",
                         Kind.is_active == True,
-                        Kind.group_id.is_(None),  # Exclude group bots
+                        Kind.namespace == "default",  # Exclude group bots
                         Kind.id != bot.id,
                     )
                     .first()
@@ -873,7 +873,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                 Kind.user_id == user_id,
                 Kind.kind == "Bot",
                 Kind.is_active == True,
-                Kind.group_id.is_(None),  # Exclude group bots
+                Kind.namespace == "default",  # Exclude group bots
             )
             .count()
         )
@@ -893,7 +893,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
             bot_crd.spec.modelRef.namespace if bot_crd.spec.modelRef else None
         )
         logger.info(
-            f"[DEBUG] _get_bot_components: bot.name={bot.name}, bot.group_id={bot.group_id}, modelRef.name={model_ref_name}, modelRef.namespace={model_ref_namespace}"
+            f"[DEBUG] _get_bot_components: bot.name={bot.name}, bot.namespace={bot.namespace}, modelRef.name={model_ref_name}, modelRef.namespace={model_ref_namespace}"
         )
 
         # Get ghost
@@ -924,11 +924,11 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
         model = None
         if bot_crd.spec.modelRef:
             # If bot belongs to a group, try to find model in that group first
-            if bot.group_id:
+            if bot.namespace:
                 model = (
                     db.query(Kind)
                     .filter(
-                        Kind.group_id == bot.group_id,
+                        Kind.namespace == bot.namespace,
                         Kind.kind == "Model",
                         Kind.name == bot_crd.spec.modelRef.name,
                         Kind.namespace == bot_crd.spec.modelRef.namespace,
@@ -936,7 +936,7 @@ class BotKindsService(BaseService[Kind, BotCreate, BotUpdate]):
                     )
                     .first()
                 )
-                logger.info(f"[DEBUG] _get_bot_components: Searched in group {bot.group_id}, model found={model is not None}")
+                logger.info(f"[DEBUG] _get_bot_components: Searched in group {bot.namespace}, model found={model is not None}")
             
             # If not found in group (or bot doesn't belong to a group), try user's private models and public models
             if not model:
