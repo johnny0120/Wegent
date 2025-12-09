@@ -30,7 +30,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { groupsApi } from '@/apis/groups';
-import { UnifiedShell } from '@/apis/shells';
+import { shellApis, UnifiedShell } from '@/apis/shells';
+import { apiClient } from '@/apis/client';
 import UnifiedAddButton from '@/components/common/UnifiedAddButton';
 
 interface GroupShellListProps {
@@ -108,11 +109,19 @@ const GroupShellList: React.FC<GroupShellListProps> = ({ groupId }) => {
 
   const fetchShells = useCallback(async () => {
     if (!selectedGroupId) return;
-    
+
     setLoading(true);
     try {
-      // Use group-specific unified API to get shells available to this group
-      const unifiedResponse = await groupsApi.getGroupUnifiedShells(selectedGroupId, true); // include_config=true for full details
+      // Get group name from groups list
+      const selectedGroup = groups.find(group => group.id === selectedGroupId);
+      if (!selectedGroup) {
+        throw new Error('Selected group not found');
+      }
+
+      // Use unified shells API with group scope parameter
+      const unifiedResponse = await shellApis.getUnifiedShells(
+        `group:${selectedGroup.name}` // scope parameter
+      );
       setUnifiedShells(unifiedResponse.data || []);
     } catch (error) {
       console.error('Failed to fetch group shells:', error);
@@ -123,7 +132,7 @@ const GroupShellList: React.FC<GroupShellListProps> = ({ groupId }) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedGroupId, toast]);
+  }, [selectedGroupId, groups, toast]);
 
   useEffect(() => {
     fetchGroups();
@@ -180,9 +189,15 @@ const displayShells: DisplayShell[] = React.useMemo(() => {
     if (!deleteConfirmShell || !selectedGroupId) return;
 
     try {
+      // Get group name from groups list
+      const selectedGroup = groups.find(group => group.id === selectedGroupId);
+      if (!selectedGroup) {
+        throw new Error('Selected group not found');
+      }
+
       if (deleteConfirmShell.isGroup) {
-        // Use group-specific delete API for group shells
-        await groupsApi.deleteGroupShell(selectedGroupId, deleteConfirmShell.name);
+        // Delete group shell using Kubernetes-style API with group namespace
+        await apiClient.delete(`/v1/namespaces/${encodeURIComponent(selectedGroup.name)}/shells/${encodeURIComponent(deleteConfirmShell.name)}`);
       } else {
         // Public shells cannot be deleted
         toast({
@@ -191,7 +206,7 @@ const displayShells: DisplayShell[] = React.useMemo(() => {
         });
         return;
       }
-      
+
       toast({
         title: '删除成功',
       });
