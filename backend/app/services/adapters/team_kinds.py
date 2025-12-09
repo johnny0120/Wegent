@@ -167,7 +167,7 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         Get user's Team list (only active teams) including shared teams
         Uses database union query for better performance and pagination
         """
-        # Query for user's own teams
+        # Query for user's own teams (only personal teams with namespace='default')
         own_teams_query = db.query(
             Kind.id.label("team_id"),
             Kind.user_id.label("team_user_id"),
@@ -180,7 +180,12 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             literal_column(str(user_id)).label(
                 "context_user_id"
             ),  # Use current user for context
-        ).filter(Kind.user_id == user_id, Kind.kind == "Team", Kind.is_active == True)
+        ).filter(
+            Kind.user_id == user_id,
+            Kind.kind == "Team",
+            Kind.namespace == "default",  # Only personal teams
+            Kind.is_active == True
+        )
 
         # Query for shared teams
         shared_teams_query = (
@@ -584,13 +589,16 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
 
     def count_user_teams(self, db: Session, *, user_id: int) -> int:
         """
-        Count user's active teams including shared teams
+        Count user's active teams including shared teams (only personal teams with namespace='default')
         """
-        # Count user's own teams
+        # Count user's own teams (only personal teams)
         own_teams_count = (
             db.query(Kind)
             .filter(
-                Kind.user_id == user_id, Kind.kind == "Team", Kind.is_active == True
+                Kind.user_id == user_id,
+                Kind.kind == "Team",
+                Kind.namespace == "default",  # Only personal teams
+                Kind.is_active == True
             )
             .count()
         )
