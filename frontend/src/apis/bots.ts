@@ -32,9 +32,23 @@ export interface BotListResponse {
 
 // Bot Services
 export const botApis = {
-  async getBots(params?: PaginationParams): Promise<BotListResponse> {
-    const query = params ? `?page=${params.page || 1}&limit=${params.limit || 100}` : '';
-    return apiClient.get(`/bots${query}`);
+  /**
+   * Get bots list based on scope
+   *
+   * @param params - Pagination parameters
+   * @param scope - Scope for resource query:
+   *   - undefined or 'default': Personal bots only (default behavior)
+   *   - 'all': Personal + all group bots user has access to
+   *   - 'group:{name}': Specific group bots
+   */
+  async getBots(params?: PaginationParams, scope?: string): Promise<BotListResponse> {
+    const queryParams = new URLSearchParams();
+    queryParams.append('page', String(params?.page || 1));
+    queryParams.append('limit', String(params?.limit || 100));
+    if (scope) {
+      queryParams.append('scope', scope);
+    }
+    return apiClient.get(`/bots?${queryParams.toString()}`);
   },
 
   async getBot(id: number): Promise<Bot> {

@@ -43,6 +43,9 @@ import {
 } from '@/components/ui/dialog';
 import UnifiedAddButton from '@/components/common/UnifiedAddButton';
 import { groupsApi } from '@/apis/groups';
+import { teamApis } from '@/apis/team';
+import { botApis } from '@/apis/bots';
+import { apiClient } from '@/apis/client';
 import { Bot, Team } from '@/types/api';
 import { sortTeamsByUpdatedAt } from '@/utils/team';
 import { sortBotsByUpdatedAt } from '@/utils/bot';
@@ -132,16 +135,23 @@ const GroupTeamList: React.FC<GroupTeamListProps> = ({ groupId }) => {
 
   const fetchData = useCallback(async () => {
     if (!selectedGroupId) return;
-    
+
     setLoading(true);
     try {
+      // Get group name from groups list
+      const selectedGroup = groups.find(group => group.id === selectedGroupId);
+      if (!selectedGroup) {
+        throw new Error('Selected group not found');
+      }
+
+      // Use unified teams and bots APIs with group scope parameter
       const [teamsResponse, botsResponse] = await Promise.all([
-        groupsApi.listGroupTeams(selectedGroupId),
-        groupsApi.listGroupBots(selectedGroupId)
+        teamApis.getTeams({ page: 1, limit: 1000 }, `group:${selectedGroup.name}`),
+        botApis.getBots({ page: 1, limit: 1000 }, `group:${selectedGroup.name}`)
       ]);
-      
-      setTeamsSorted((teamsResponse as any).items || []);
-      setBotsSorted((botsResponse as any).items || []);
+
+      setTeamsSorted(teamsResponse.items || []);
+      setBotsSorted(botsResponse.items || []);
     } catch (error) {
       console.error('Failed to fetch teams and bots:', error);
       toast({
@@ -151,7 +161,7 @@ const GroupTeamList: React.FC<GroupTeamListProps> = ({ groupId }) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedGroupId, toast, setTeamsSorted, setBotsSorted]);
+  }, [selectedGroupId, groups, toast, setTeamsSorted, setBotsSorted]);
 
   useEffect(() => {
     fetchGroups();
@@ -203,8 +213,15 @@ const GroupTeamList: React.FC<GroupTeamListProps> = ({ groupId }) => {
     if (!deleteConfirmTeam || !selectedGroupId) return;
 
     try {
-      // TODO: Implement group team deletion API
-      // await groupsApi.deleteGroupTeam(selectedGroupId, deleteConfirmTeam.id);
+      // Get group name from groups list
+      const selectedGroup = groups.find(group => group.id === selectedGroupId);
+      if (!selectedGroup) {
+        throw new Error('Selected group not found');
+      }
+
+      // Delete group team using Kubernetes-style API with group namespace
+      await apiClient.delete(`/v1/namespaces/${encodeURIComponent(selectedGroup.name)}/teams/${encodeURIComponent(deleteConfirmTeam.name)}`);
+
       toast({
         title: t('teams.delete_success') || '删除成功',
       });

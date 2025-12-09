@@ -57,10 +57,24 @@ export interface TeamInputParametersResponse {
 }
 
 export const teamApis = {
-  async getTeams(params?: PaginationParams): Promise<TeamListResponse> {
+  /**
+   * Get teams list based on scope
+   *
+   * @param params - Pagination parameters
+   * @param scope - Scope for resource query:
+   *   - undefined or 'default': Personal teams only (default behavior)
+   *   - 'all': Personal + all group teams user has access to
+   *   - 'group:{name}': Specific group teams
+   */
+  async getTeams(params?: PaginationParams, scope?: string): Promise<TeamListResponse> {
     const p = params ? params : { page: 1, limit: 100 };
-    const query = p ? `?page=${p.page || 1}&limit=${p.limit || 100}` : '';
-    return apiClient.get(`/teams${query}`);
+    const queryParams = new URLSearchParams();
+    queryParams.append('page', String(p.page || 1));
+    queryParams.append('limit', String(p.limit || 100));
+    if (scope) {
+      queryParams.append('scope', scope);
+    }
+    return apiClient.get(`/teams?${queryParams.toString()}`);
   },
   async createTeam(data: CreateTeamRequest): Promise<Team> {
     return apiClient.post('/teams', data);
