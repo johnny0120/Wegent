@@ -163,10 +163,14 @@ async def update_member_role(
     update: GroupMemberUpdate,
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
     """Update member role (Maintainer+ permission required)"""
+    # Get group name by ID
+    group_name = get_group_name_by_id(group_id, db)
+    
     member = group_service.update_member_role(
-        group_id, current_user.id, user_id, update
+        group_name, current_user.id, user_id, update
     )
     return {"message": "Member role updated successfully", "member_id": member.id}
 
@@ -243,6 +247,9 @@ async def list_group_models(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Get models in this group (Reporter+ permission required)"""
+    # Get group name by ID
+    group_name = get_group_name_by_id(group_id, db)
+    
     # Check view permission
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -328,7 +335,6 @@ async def get_group_bot(
     
     return bot_dict
 
-
 @router.get("/{group_id}/bots")
 async def list_group_bots(
     group_id: int,
@@ -339,6 +345,9 @@ async def list_group_bots(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Get bots in this group (Reporter+ permission required)"""
+    # Get group name by ID
+    group_name = get_group_name_by_id(group_id, db)
+    
     # Check view permission
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -382,17 +391,17 @@ async def create_group_bot(
     bot_data: Dict[str, Any],
     current_user: User = Depends(security.get_current_user),
     group_service: GroupService = Depends(get_group_service),
+    db: Session = Depends(get_db),
 ):
-    """
+    """Create a new bot in the specified group (Developer+ permission required)"""
+    # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
-
-    Create a new bot in the specified group (Developer+ permission required)
-    """
+    
     try:
         bot = group_service.create_group_bot(group_name, current_user.id, bot_data)
         logger.info(
             f"Created group Bot resource: name='{bot['name']}', "
-            f"namespace='{bot.get('namespace', 'default')}', group_id={group_id}, "
+            f"namespace='{bot.get('namespace', 'default')}', group_name='{group_name}', "
             f"user_id={current_user.id}, resource_id={bot['id']}"
         )
         return {
@@ -427,7 +436,7 @@ async def update_group_bot(
         bot = group_service.update_group_bot(group_name, current_user.id, bot_id, bot_data)
         logger.info(
             f"Updated group Bot resource: id='{bot_id}', "
-            f"group_id={group_id}, user_id={current_user.id}, resource_id={bot['id']}"
+            f"group_name='{group_name}', user_id={current_user.id}, resource_id={bot['id']}"
         )
         return {
             "message": "Group bot updated successfully",
@@ -443,7 +452,6 @@ async def update_group_bot(
             detail="Failed to update group bot"
         )
 
-
 @router.get("/{group_id}/teams")
 async def list_group_teams(
     group_id: int,
@@ -454,6 +462,9 @@ async def list_group_teams(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Get teams in this group (Reporter+ permission required)"""
+    # Get group name by ID
+    group_name = get_group_name_by_id(group_id, db)
+    
     # Check view permission
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -489,7 +500,6 @@ async def list_group_teams(
         ],
     }
 
-
 @router.post("/{group_id}/models", status_code=status.HTTP_201_CREATED)
 async def create_group_model(
     group_id: int,
@@ -498,11 +508,10 @@ async def create_group_model(
     db: Session = Depends(get_db),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """
+    """Create a new model in the specified group (Developer+ permission required)"""
+    # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
-
-    Create a new model in the specified group (Developer+ permission required)
-    """
+    
     # Check if user has create permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "create")
     if not has_perm:
@@ -526,7 +535,6 @@ async def create_group_model(
             .filter(
                 Kind.namespace == group_name,
                 Kind.kind == "Model",
-                Kind.namespace == model_data["metadata"]["namespace"],
                 Kind.name == model_data["metadata"]["name"],
                 Kind.is_active == True,
             )
@@ -548,10 +556,9 @@ async def create_group_model(
         # Create new group model
         db_resource = Kind(
             user_id=current_user.id,  # Creator user ID
-            group_name=group_name,        # Group ownership
             kind="Model",
             name=model_data["metadata"]["name"],
-            namespace=model_data["metadata"]["namespace"],
+            namespace=group_name,        # Group ownership
             json=resource_data,
         )
         
@@ -561,7 +568,7 @@ async def create_group_model(
         
         logger.info(
             f"Created group Model resource: name='{model_data['metadata']['name']}', "
-            f"namespace='{model_data['metadata']['namespace']}', group_id={group_id}, "
+            f"namespace='{model_data['metadata']['namespace']}', group_name='{group_name}', "
             f"user_id={current_user.id}, resource_id={db_resource.id}"
         )
         
@@ -586,7 +593,6 @@ async def create_group_model(
             detail="Failed to create group model"
         )
 
-
 @router.get("/{group_id}/models/unified")
 async def get_group_unified_models(
     group_id: int,
@@ -600,11 +606,14 @@ async def get_group_unified_models(
     Get unified models available to a group.
     
     Returns models in the following priority order:
-    1. Group-specific models (group_id = group_id)
-    2. Public models (user_id = 0, group_id = null)
+    1. Group-specific models (namespace = group_name)
+    2. Public models (user_id = 0, namespace = 'default')
     
     Note: Personal user models are NOT included in group context.
     """
+    # Get group name by ID
+    group_name = get_group_name_by_id(group_id, db)
+    
     # Check if user has access to the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -624,7 +633,6 @@ async def get_group_unified_models(
     
     return {"data": models}
 
-
 @router.put("/{group_id}/models/{model_id}", status_code=status.HTTP_200_OK)
 async def update_group_model(
     group_id: int,
@@ -634,11 +642,10 @@ async def update_group_model(
     db: Session = Depends(get_db),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """
-    Update a model in the specified group (Developer+ permission required)
-    """
+    """Update a model in the specified group (Developer+ permission required)"""
+    # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
-
+    
     # Check if user has edit permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "edit")
     if not has_perm:
@@ -682,15 +689,14 @@ async def update_group_model(
         
         # Update the existing model
         existing.json = resource_data
-        existing.namespace = model_data["metadata"]["namespace"]
-        # Note: name and group_id should not be changed
+        # Note: name and namespace should not be changed
         
         db.commit()
         db.refresh(existing)
         
         logger.info(
             f"Updated group Model resource: name='{model_id}', "
-            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+            f"group_name='{group_name}', user_id={current_user.id}, resource_id={existing.id}"
         )
         
         # Format response using ModelKindService
@@ -714,7 +720,6 @@ async def update_group_model(
             detail="Failed to update group model"
         )
 
-
 @router.delete("/{group_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group_model(
     group_id: int,
@@ -723,11 +728,10 @@ async def delete_group_model(
     db: Session = Depends(get_db),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """
-    Delete a model from the specified group (Maintainer+ permission required)
-    """
+    """Delete a model from the specified group (Maintainer+ permission required)"""
+    # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
-
+    
     # Check if user has delete permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "delete")
     if not has_perm:
@@ -765,7 +769,7 @@ async def delete_group_model(
         
         logger.info(
             f"Deleted group Model resource: name='{model_id}', "
-            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+            f"group_name='{group_name}', user_id={current_user.id}, resource_id={existing.id}"
         )
         
         return None
@@ -789,6 +793,9 @@ async def list_group_shells(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Get shells in this group (Reporter+ permission required)"""
+    # Get group name by ID
+    group_name = get_group_name_by_id(group_id, db)
+    
     # Check view permission
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -824,7 +831,6 @@ async def list_group_shells(
         ],
     }
 
-
 @router.get("/{group_id}/shells/unified")
 async def get_group_unified_shells(
     group_id: int,
@@ -833,17 +839,17 @@ async def get_group_unified_shells(
     db: Session = Depends(get_db),
     group_service: GroupService = Depends(get_group_service),
 ) -> Dict[str, Any]:
-    """
-    group_name = get_group_name_by_id(group_id, db)
-
-    Get unified shells available to a group.
+    """Get unified shells available to a group.
     
     Returns shells in the following priority order:
-    1. Group-specific shells (group_id = group_id)
-    2. Public shells (user_id = 0, group_id = null)
+    1. Group-specific shells (namespace = group_name)
+    2. Public shells (user_id = 0, namespace = 'default')
     
     Note: Personal user shells are NOT included in group context.
     """
+    # Get group name by ID
+    group_name = get_group_name_by_id(group_id, db)
+    
     # Check if user has access to the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -870,7 +876,7 @@ async def get_group_unified_shells(
         db.query(Kind)
         .filter(
             Kind.user_id == 0,
-            Kind.group_id.is_(None),
+            Kind.namespace == "default",
             Kind.kind == "Shell",
             Kind.is_active == True
         )
@@ -916,7 +922,6 @@ async def get_group_unified_shells(
     
     return {"data": unified_shells}
 
-
 @router.post("/{group_id}/shells", status_code=status.HTTP_201_CREATED)
 async def create_group_shell(
     group_id: int,
@@ -925,11 +930,10 @@ async def create_group_shell(
     db: Session = Depends(get_db),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """
-    Create a new shell in the specified group (Developer+ permission required)
-    """
+    """Create a new shell in the specified group (Developer+ permission required)"""
+    # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
-
+    
     # Check if user has create permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "create")
     if not has_perm:
@@ -947,7 +951,6 @@ async def create_group_shell(
             .filter(
                 Kind.namespace == group_name,
                 Kind.kind == "Shell",
-                Kind.namespace == shell_data["metadata"]["namespace"],
                 Kind.name == shell_data["metadata"]["name"],
                 Kind.is_active == True,
             )
@@ -963,10 +966,9 @@ async def create_group_shell(
         # Create new group shell
         db_resource = Kind(
             user_id=current_user.id,  # Creator user ID
-            group_name=group_name,        # Group ownership
             kind="Shell",
             name=shell_data["metadata"]["name"],
-            namespace=shell_data["metadata"]["namespace"],
+            namespace=group_name,        # Group ownership
             json=shell_data,
         )
         
@@ -976,7 +978,7 @@ async def create_group_shell(
         
         logger.info(
             f"Created group Shell resource: name='{shell_data['metadata']['name']}', "
-            f"namespace='{shell_data['metadata']['namespace']}', group_id={group_id}, "
+            f"namespace='{shell_data['metadata']['namespace']}', group_name='{group_name}', "
             f"user_id={current_user.id}, resource_id={db_resource.id}"
         )
         
@@ -993,7 +995,6 @@ async def create_group_shell(
             detail="Failed to create group shell"
         )
 
-
 @router.put("/{group_id}/shells/{shell_id}", status_code=status.HTTP_200_OK)
 async def update_group_shell(
     group_id: int,
@@ -1003,11 +1004,10 @@ async def update_group_shell(
     db: Session = Depends(get_db),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """
-    Update a shell in the specified group (Developer+ permission required)
-    """
+    """Update a shell in the specified group (Developer+ permission required)"""
+    # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
-
+    
     # Check if user has edit permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "edit")
     if not has_perm:
@@ -1039,14 +1039,13 @@ async def update_group_shell(
         
         # Update the existing shell
         existing.json = shell_data
-        existing.namespace = shell_data["metadata"]["namespace"]
         
         db.commit()
         db.refresh(existing)
         
         logger.info(
             f"Updated group Shell resource: name='{shell_id}', "
-            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+            f"group_name='{group_name}', user_id={current_user.id}, resource_id={existing.id}"
         )
         
         return {
@@ -1071,11 +1070,10 @@ async def delete_group_shell(
     db: Session = Depends(get_db),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """
-    Delete a shell from the specified group (Maintainer+ permission required)
-    """
+    """Delete a shell from the specified group (Maintainer+ permission required)"""
+    # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
-
+    
     # Check if user has delete permission in the group
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "delete")
     if not has_perm:
@@ -1112,7 +1110,7 @@ async def delete_group_shell(
         
         logger.info(
             f"Deleted group Shell resource: name='{shell_id}', "
-            f"group_id={group_id}, user_id={current_user.id}, resource_id={existing.id}"
+            f"group_name='{group_name}', user_id={current_user.id}, resource_id={existing.id}"
         )
         
         return None

@@ -34,8 +34,9 @@ export default function GroupEditDrawer({
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [name, setName] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [description, setDescription] = useState('')
-  const [parentId, setParentId] = useState<number | null>(null)
+  const [parentPath, setParentPath] = useState<string | null>(null)
   const [availableGroups, setAvailableGroups] = useState<GroupListItem[]>([])
   const isCreate = groupId === null
 
@@ -46,8 +47,9 @@ export default function GroupEditDrawer({
         loadGroup()
       } else if (isCreate) {
         setName('')
+        setDisplayName('')
         setDescription('')
-        setParentId(null)
+        setParentPath(null)
       }
     }
   }, [isOpen, isCreate, groupId])
@@ -70,8 +72,9 @@ export default function GroupEditDrawer({
     try {
       const group = await groupsApi.getGroup(groupId)
       setName(group.name)
+      setDisplayName(group.display_name || '')
       setDescription(group.description || '')
-      setParentId(group.parent_id || null)
+      setParentPath(group.parent_name || null)
     } catch (error) {
       toast({
         variant: 'destructive',
@@ -94,8 +97,9 @@ export default function GroupEditDrawer({
       if (isCreate) {
         const data: GroupCreate = {
           name: name.trim(),
+          display_name: displayName.trim() || undefined,
+          parent_path: parentPath || undefined,
           description: description.trim() || undefined,
-          parent_id: parentId || undefined,
         }
         await groupsApi.createGroup(data)
         toast({
@@ -103,7 +107,7 @@ export default function GroupEditDrawer({
         })
       } else if (groupId) {
         const data: GroupUpdate = {
-          name: name.trim(),
+          display_name: displayName.trim() || undefined,
           description: description.trim() || undefined,
         }
         await groupsApi.updateGroup(groupId, data)
@@ -140,6 +144,17 @@ export default function GroupEditDrawer({
       </div>
 
       <div className="space-y-2">
+        <Label htmlFor="group-display-name">显示名称</Label>
+        <Input
+          id="group-display-name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="请输入群组显示名称"
+          disabled={isLoading}
+        />
+      </div>
+
+      <div className="space-y-2">
         <Label htmlFor="group-description">群组描述</Label>
         <Input
           id="group-description"
@@ -153,15 +168,15 @@ export default function GroupEditDrawer({
       {isCreate && (
         <div className="space-y-2">
           <Label htmlFor="parent-group">父群组</Label>
-          <Select value={parentId?.toString() || 'none'} onValueChange={(value) => setParentId(value === 'none' ? null : parseInt(value))}>
+          <Select value={parentPath || 'none'} onValueChange={(value) => setParentPath(value === 'none' ? null : value)}>
             <SelectTrigger>
               <SelectValue placeholder="选择父群组（留空表示顶级群组）" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">无（顶级群组）</SelectItem>
               {availableGroups.map((group) => (
-                <SelectItem key={group.id} value={group.id.toString()}>
-                  {group.name}
+                <SelectItem key={group.name} value={group.name}>
+                  {group.display_name || group.name}
                 </SelectItem>
               ))}
             </SelectContent>

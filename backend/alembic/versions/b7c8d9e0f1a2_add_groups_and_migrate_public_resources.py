@@ -35,7 +35,6 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('name', sa.String(length=100), nullable=False),
         sa.Column('display_name', sa.String(length=100), nullable=True),
-        sa.Column('parent_name', sa.String(length=100), nullable=True),
         sa.Column('owner_user_id', sa.Integer(), nullable=False),
         sa.Column('visibility', sa.String(length=20), server_default='private', nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
@@ -49,7 +48,6 @@ def upgrade() -> None:
         mysql_engine='InnoDB'
     )
     op.create_index('idx_groups_owner_user_id', 'namespace', ['owner_user_id'], unique=False)
-    op.create_index('idx_groups_parent_name', 'namespace', ['parent_name'], unique=False)
 
     # Create namespace_members table
     op.create_table(
@@ -194,7 +192,6 @@ def downgrade() -> None:
     op.drop_index('idx_group_members_user_id', 'namespace_members')
     op.drop_table('namespace_members')
 
-    op.drop_index('idx_groups_parent_name', 'namespace')
     op.drop_index('idx_groups_owner_user_id', 'namespace')
     op.drop_constraint('idx_groups_name_unique', 'namespace', type_='unique')
     op.drop_table('namespace')

@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.models.group import Group
 from app.models.group_member import GroupMember
@@ -113,15 +113,15 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         Returns the highest role found in the group hierarchy
         """
         if check_parents:
-            # Get all ancestor groups (including current group)
-            ancestor_ids = self._get_ancestor_group_ids(group_id)
+            # Get all ancestor group names (including current group)
+            ancestor_names = self._get_ancestor_group_names(group_name)
 
-            # Query all memberships in ancestor groups
+            # Query all memberships in ancestor groups using group_name
             memberships = (
                 self.db.query(GroupMember)
                 .filter(
                     and_(
-                        GroupMember.group_id.in_(ancestor_ids),
+                        GroupMember.group_name.in_(ancestor_names),
                         GroupMember.user_id == user_id,
                         GroupMember.is_active == True,
                     )
@@ -354,7 +354,7 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
             id=group.id,
             name=group.name,
             display_name=group.display_name,
-            parent_name=group.parent_name,
+            parent_name=group.parent_path,
             owner_user_id=group.owner_user_id,
             visibility=group.visibility,
             description=group.description,
@@ -458,7 +458,6 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         # Query members
         query = (
             self.db.query(GroupMember)
-            .options(joinedload(GroupMember.user), joinedload(GroupMember.invited_by))
             .filter(
                 and_(GroupMember.group_name == group_name, GroupMember.is_active == True)
             )
@@ -468,14 +467,22 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
         total = query.count()
         members = query.offset(skip).limit(limit).all()
 
+        # Get user IDs for batch query
+        user_ids = [m.user_id for m in members if m.user_id]
+        invited_by_user_ids = [m.invited_by_user_id for m in members if m.invited_by_user_id]
+        
+        # Batch query users
+        users = {u.id: u.user_name for u in self.db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
+        invited_by_users = {u.id: u.user_name for u in self.db.query(User).filter(User.id.in_(invited_by_user_ids)).all()} if invited_by_user_ids else {}
+
         items = [
             GroupMemberListItem(
                 id=m.id,
                 user_id=m.user_id,
-                user_name=m.user.user_name if m.user else "Unknown",
+                user_name=users.get(m.user_id, "Unknown"),
                 role=GroupRole(m.role),
                 invited_by_user_id=m.invited_by_user_id,
-                invited_by_user_name=m.invited_by.user_name if m.invited_by else None,
+                invited_by_user_name=invited_by_users.get(m.invited_by_user_id) if m.invited_by_user_id else None,
                 created_at=m.created_at,
             )
             for m in members

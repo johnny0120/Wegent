@@ -15,7 +15,7 @@ import {
   UserGroupIcon,
 } from '@heroicons/react/24/outline'
 import { groupsApi } from '@/apis/groups'
-import type { GroupDetail } from '@/types/group'
+import type { GroupDetail, GroupListItem } from '@/types/group'
 import UnifiedAddButton from '@/components/common/UnifiedAddButton'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useToast } from '@/hooks/use-toast'
@@ -35,7 +35,7 @@ import GroupEditDrawer from './GroupEditDrawer'
 export default function GroupList() {
   const { t } = useTranslation('common')
   const { toast } = useToast()
-  const [groups, setGroups] = useState<GroupDetail[]>([])
+  const [groups, setGroups] = useState<GroupListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false)
@@ -48,7 +48,7 @@ export default function GroupList() {
     setIsLoading(true)
     try {
       const response = await groupsApi.listGroups()
-      setGroups(response.groups || [])
+      setGroups(response.items || [])
     } catch (error) {
       toast({
         variant: 'destructive',
@@ -67,7 +67,7 @@ export default function GroupList() {
     setEditingGroupId(0) // Use 0 to mark new creation
   }
 
-  const handleEditGroup = (group: GroupDetail) => {
+  const handleEditGroup = (group: GroupListItem) => {
     setEditingGroupId(group.id)
   }
 
@@ -123,8 +123,8 @@ export default function GroupList() {
   }
 
   // Check if edit and delete buttons should be shown
-  const canEditOrDelete = (group: GroupDetail) => {
-    return group.role === 'owner' || group.role === 'admin'
+  const canEditOrDelete = (group: GroupListItem) => {
+    return group.my_role === 'Owner' || group.my_role === 'Maintainer'
   }
 
   if (isLoading) {
@@ -143,7 +143,7 @@ export default function GroupList() {
           <h2 className="text-lg font-semibold">{t('settings.groups')}</h2>
           <p className="text-sm text-text-muted mt-1">{t('groups.description')}</p>
         </div>
-        <UnifiedAddButton onClick={handleCreateGroup} label={t('groups.create_new')} />
+        <UnifiedAddButton onClick={handleCreateGroup}>{t('groups.create_new')}</UnifiedAddButton>
       </div>
 
       {/* Group List */}
@@ -166,8 +166,8 @@ export default function GroupList() {
                     <UserGroupIcon className="w-5 h-5 text-primary flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-base font-medium truncate">{group.name}</h3>
-                        {getRoleTag(group.role)}
+                        <h3 className="text-base font-medium truncate">{group.display_name || group.name}</h3>
+                        {getRoleTag(group.my_role)}
                       </div>
                       {group.description && (
                         <p className="text-sm text-text-muted mt-1 truncate">
@@ -179,11 +179,6 @@ export default function GroupList() {
                           <UsersIcon className="w-3 h-3" />
                           {group.member_count || 0} {t('groups.members')}
                         </span>
-                        {group.owner && (
-                          <span>
-                            {t('groups.owned_by', { owner: group.owner.user_name })}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>

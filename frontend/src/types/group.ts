@@ -22,21 +22,29 @@ export enum ResourceSource {
 
 export interface GroupBase {
   name: string
-  parent_id?: number | null
+  display_name?: string | null
   description?: string | null
 }
 
-export interface GroupCreate extends GroupBase {}
+export interface GroupCreate {
+  name: string
+  display_name?: string | null
+  parent_path?: string | null
+  description?: string | null
+}
 
 export interface GroupUpdate {
-  name?: string
+  display_name?: string | null
   description?: string | null
 }
 
-export interface GroupInDB extends GroupBase {
+export interface GroupInDB {
   id: number
+  name: string
+  display_name?: string | null
   owner_user_id: number
   visibility: string
+  description?: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -45,12 +53,15 @@ export interface GroupInDB extends GroupBase {
 export interface GroupListItem {
   id: number
   name: string
-  parent_id?: number | null
+  display_name?: string | null
+  parent_path?: string | null
+  simple_name?: string | null
   description?: string | null
   member_count: number
   resource_count: number
   my_role: GroupRole
   created_at: string
+  path_depth?: number
 }
 
 export interface GroupListResponse {
@@ -59,6 +70,8 @@ export interface GroupListResponse {
 }
 
 export interface GroupDetail extends GroupInDB {
+  display_name?: string | null
+  parent_name?: string | null
   member_count: number
   resource_count: number
   my_role: GroupRole
@@ -82,7 +95,7 @@ export interface GroupMemberUpdate {
 
 export interface GroupMemberInDB extends GroupMemberBase {
   id: number
-  group_id: number
+  group_name: string
   invited_by_user_id?: number | null
   is_active: boolean
   created_at: string
@@ -115,6 +128,5 @@ export interface InviteAllUsersRequest {
 // Resource with source information
 export interface ResourceWithSource {
   source: ResourceSource
-  group_id?: number | null
   group_name?: string | null
 }
