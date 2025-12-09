@@ -504,10 +504,10 @@ spec:
 |--------|---------|
 | `/api/auth` | Authentication (login, OIDC) |
 | `/api/users` | User management |
-| `/api/bots` | Bot CRUD |
-| `/api/models` | Model management (unified, test-connection, compatible) |
-| `/api/shells` | Shell management (unified, validate-image) |
-| `/api/teams` | Team CRUD, sharing |
+| `/api/bots` | Bot CRUD with scope parameter support |
+| `/api/models` | Model management with scope parameter support (unified, test-connection, compatible) |
+| `/api/shells` | Shell management with scope parameter support (unified, validate-image) |
+| `/api/teams` | Team CRUD with scope parameter support, sharing |
 | `/api/tasks` | Task CRUD, cancel, sharing |
 | `/api/chat` | Streaming chat, cancel, resume-stream |
 | `/api/subtasks` | Subtask management |
@@ -518,6 +518,60 @@ spec:
 | `/api/v1/namespaces/{ns}/{kinds}` | Kubernetes-style Kind API |
 | `/api/v1/kinds/skills` | Skill upload/management |
 | `/api/admin` | Admin operations |
+| `/api/groups` | Group and member management (resource CRUD uses scope parameter on main endpoints) |
+
+### Unified Resource CRUD with Scope Parameter
+
+All resource endpoints (Models, Shells, Teams, Bots) now support a unified `scope` query parameter for managing resources across personal, public, and group contexts.
+
+**Scope Parameter Values:**
+- `default` or omitted: Personal resources (namespace='default', user_id=current_user)
+- `all`: All accessible resources (personal + public + all groups user has access to) - **list operations only**
+- `group:{name}`: Group-specific resources (namespace=group_name)
+
+**Permission Requirements:**
+| Operation | Scope | Required Permission |
+|-----------|-------|-------------------|
+| List | `default` | Authenticated user |
+| List | `all` | Authenticated user (returns only accessible group resources) |
+| List | `group:{name}` | View permission (Reporter+) in group |
+| Get | `group:{name}` | View permission (Reporter+) in group |
+| Create | `group:{name}` | Create permission (Developer+) in group |
+| Update | `group:{name}` | Edit permission (Developer+) in group |
+| Delete | `group:{name}` | Delete permission (Maintainer+) in group |
+
+**API Examples:**
+```bash
+# List all accessible models (personal + public + all groups)
+GET /api/models/unified?scope=all
+
+# List models in specific group
+GET /api/models/unified?scope=group:ai-team
+
+# Create model in group
+POST /api/models?scope=group:ai-team
+
+# Update shell in group
+PUT /api/shells/my-shell?scope=group:ai-team
+
+# Delete team in group
+DELETE /api/teams/123?scope=group:ai-team
+```
+
+**Response Structure:**
+All resources include `type` field and `groupName` field for group resources:
+```json
+{
+  "name": "resource-name",
+  "type": "public" | "user" | "group",
+  "groupName": "group-name",  // only present when type="group"
+  // ... other fields
+}
+```
+
+**BREAKING CHANGE (v1.0.20):**
+Group resource CRUD endpoints have been removed from `/api/groups/{group_id}/{resource}/*`.
+Use unified endpoints with `scope=group:{name}` parameter instead.
 
 ### Executor Manager Routes
 
@@ -595,10 +649,22 @@ Groups enable organization-level collaboration and resource sharing, similar to 
 - `POST /api/groups/{id}/transfer-ownership` - Transfer ownership
 - `POST /api/groups/{id}/members/invite-all` - Invite all users (Owner only)
 
-**Resource Queries:**
-- `GET /api/groups/{id}/models` - List group models
-- `GET /api/groups/{id}/bots` - List group bots
-- `GET /api/groups/{id}/teams` - List group teams
+**Resource Management:**
+Group resources are now managed through unified endpoints with scope parameter:
+```bash
+# List group models
+GET /api/models/unified?scope=group:{group_name}
+
+# List group shells
+GET /api/shells/unified?scope=group:{group_name}
+
+# List group teams
+GET /api/teams?scope=group:{group_name}
+
+# List group bots
+GET /api/bots?scope=group:{group_name}
+```
+See "Unified Resource CRUD with Scope Parameter" section above for details.
 
 ### Frontend Integration
 

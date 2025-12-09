@@ -23,6 +23,7 @@ from app.schemas.model import (
 )
 from app.services.adapters import public_model_service
 from app.services.model_aggregation_service import ModelType, model_aggregation_service
+from app.services.scope_service import scope_service, ScopeType
 
 # Import AI client libraries at module level for better type checking
 import anthropic
@@ -81,6 +82,7 @@ def list_unified_models(
     include_config: bool = Query(
         False, description="Whether to include full config in response"
     ),
+    scope: Optional[str] = Query(None, description="Scope for resource query"),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
@@ -90,6 +92,7 @@ def list_unified_models(
     This endpoint aggregates models from:
     - Public models (type='public'): Shared across all users
     - User-defined models (type='user'): Private to the current user
+    - Group models (type='group'): Shared within groups (when scope='all')
 
     Each model includes a 'type' field to identify its source, which is
     important for avoiding naming conflicts when binding models.
@@ -97,13 +100,14 @@ def list_unified_models(
     Parameters:
     - shell_type: Optional shell type to filter compatible models
     - include_config: Whether to include full model config in response
+    - scope: Scope for resource query ('default', 'all', or 'group:{name}')
 
     Response:
     {
       "data": [
         {
           "name": "model-name",
-          "type": "public" | "user",
+          "type": "public" | "user" | "group",
           "displayName": "Human Readable Name",
           "provider": "openai" | "claude",
           "modelId": "gpt-4"
@@ -116,6 +120,7 @@ def list_unified_models(
         current_user=current_user,
         shell_type=shell_type,
         include_config=include_config,
+        scope=scope,
     )
     return {"data": data}
 
@@ -124,27 +129,30 @@ def list_unified_models(
 def get_unified_model(
     model_name: str,
     model_type: Optional[str] = Query(
-        None, description="Model type ('public' or 'user')"
+        None, description="Model type ('public', 'user', or 'group')"
     ),
+    scope: Optional[str] = Query(None, description="Scope for resource query"),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
     """
-    Get a specific model by name, optionally with type hint.
+    Get a specific model by name, optionally with type hint and scope.
 
     If model_type is not provided, it will try to find the model
     in the following order:
     1. User's own models (type='user')
     2. Public models (type='public')
+    3. Group models (type='group', if scope is provided)
 
     Parameters:
     - model_name: Model name
-    - model_type: Optional model type hint ('public' or 'user')
+    - model_type: Optional model type hint ('public', 'user', or 'group')
+    - scope: Scope for resource query ('default', 'group:{name}')
 
     Response:
     {
       "name": "model-name",
-      "type": "public" | "user",
+      "type": "public" | "user" | "group",
       "displayName": "Human Readable Name",
       "provider": "openai" | "claude",
       "modelId": "gpt-4",
@@ -152,8 +160,27 @@ def get_unified_model(
       "isActive": true
     }
     """
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for get operations
+    scope_service.validate_scope_for_operation(scope_info, "get")
+
+    # If scope is group, validate user has access
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        scope_service.validate_group_access(
+            db=db,
+            group_name=scope_info.group_name,
+            user_id=current_user.id,
+            required_permission="view",
+        )
+
     result = model_aggregation_service.resolve_model(
-        db=db, current_user=current_user, name=model_name, model_type=model_type
+        db=db,
+        current_user=current_user,
+        name=model_name,
+        model_type=model_type,
+        scope=scope,
     )
 
     if not result:
@@ -165,20 +192,90 @@ def get_unified_model(
 @router.post("", response_model=ModelInDB, status_code=status.HTTP_201_CREATED)
 def create_model(
     model_create: ModelCreate,
+    scope: Optional[str] = Query(None, description="Scope for resource creation"),
     current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Create new Model
+
+    Parameters:
+    - scope: Scope for resource creation ('default' or 'group:{name}')
     """
-    return public_model_service.create_model(
-        db=db, obj_in=model_create, current_user=current_user
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for create operations
+    scope_service.validate_scope_for_operation(scope_info, "create")
+
+    # Determine namespace based on scope
+    namespace = "default"
+    user_id = current_user.id
+
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        # Validate user has create permission in the group
+        scope_service.validate_group_access(
+            db=db,
+            group_name=scope_info.group_name,
+            user_id=current_user.id,
+            required_permission="create",
+        )
+        namespace = scope_info.group_name
+
+    # Check for existing model with same name in the target namespace
+    existed = (
+        db.query(Kind)
+        .filter(
+            Kind.user_id == user_id,
+            Kind.kind == "Model",
+            Kind.name == model_create.name,
+            Kind.namespace == namespace,
+        )
+        .first()
     )
+    if existed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model name '{model_create.name}' already exists in namespace '{namespace}'"
+        )
+
+    # Create model in the appropriate namespace
+    json_data = {
+        "kind": "Model",
+        "spec": {"modelConfig": model_create.config},
+        "status": {"state": "Available"},
+        "metadata": {"name": model_create.name, "namespace": namespace},
+        "apiVersion": "agent.wecode.io/v1",
+    }
+
+    db_obj = Kind(
+        user_id=user_id,
+        kind="Model",
+        name=model_create.name,
+        namespace=namespace,
+        json=json_data,
+        is_active=model_create.is_active if model_create.is_active is not None else True,
+    )
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+
+    # Convert to ModelInDB format
+    model_data = {
+        "id": db_obj.id,
+        "name": db_obj.name,
+        "config": json_data.get("spec", {}).get("modelConfig", {}),
+        "is_active": db_obj.is_active,
+        "created_at": db_obj.created_at,
+        "updated_at": db_obj.updated_at,
+    }
+    return ModelInDB.model_validate(model_data)
 
 
 @router.post("/batch", status_code=status.HTTP_201_CREATED)
 def bulk_create_models(
     items: List[ModelBulkCreateItem],
+    scope: Optional[str] = Query(None, description="Scope for resource creation"),
     current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -205,39 +302,133 @@ def bulk_create_models(
       "skipped": [{"name": "...", "reason": "..."}]
     }
     """
-    result = public_model_service.bulk_create_models(
-        db=db, items=items, current_user=current_user
-    )
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
 
-    # Convert PublicModel objects to Model-like objects
-    created = []
-    for pm in result.get("created", []):
-        model_data = {
-            "id": pm.id,
-            "name": pm.name,
-            "config": pm.json.get("spec", {}).get("modelConfig", {}),
-            "is_active": pm.is_active,
-            "created_at": pm.created_at,
-            "updated_at": pm.updated_at,
-        }
-        created.append(ModelInDB.model_validate(model_data))
+    # Validate that "all" scope is not allowed for create operations
+    scope_service.validate_scope_for_operation(scope_info, "create")
 
-    updated = []
-    for pm in result.get("updated", []):
+    # Determine namespace based on scope
+    namespace = "default"
+    user_id = current_user.id
+
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        # Validate user has create permission in the group
+        scope_service.validate_group_access(
+            db=db,
+            group_name=scope_info.group_name,
+            user_id=current_user.id,
+            required_permission="create",
+        )
+        namespace = scope_info.group_name
+
+    created: List[Kind] = []
+    updated: List[Kind] = []
+    skipped: List[dict] = []
+
+    for it in items:
+        try:
+            existed = (
+                db.query(Kind)
+                .filter(
+                    Kind.user_id == user_id,
+                    Kind.kind == "Model",
+                    Kind.name == it.name,
+                    Kind.namespace == namespace,
+                )
+                .first()
+            )
+            if existed:
+                # Update existing model
+                if isinstance(existed.json, dict):
+                    model_crd = ModelCRD.model_validate(existed.json)
+                    # Update env section
+                    model_crd.spec.modelConfig["env"] = (
+                        dict(it.env) if isinstance(it.env, dict) else {}
+                    )
+                    existed.json = model_crd.model_dump()
+                else:
+                    # Fallback for invalid JSON
+                    json_data = {
+                        "kind": "Model",
+                        "spec": {
+                            "modelConfig": {
+                                "env": (
+                                    dict(it.env)
+                                    if isinstance(it.env, dict)
+                                    else {}
+                                )
+                            }
+                        },
+                        "status": {"state": "Available"},
+                        "metadata": {"name": it.name, "namespace": namespace},
+                        "apiVersion": "agent.wecode.io/v1",
+                    }
+                    existed.json = json_data
+                # Update is_active only if explicitly provided
+                if getattr(it, "is_active", None) is not None:
+                    existed.is_active = it.is_active
+
+                db.add(existed)
+                db.commit()
+                db.refresh(existed)
+                updated.append(existed)
+            else:
+                # Create new
+                json_data = {
+                    "kind": "Model",
+                    "spec": {"modelConfig": {"env": it.env}},
+                    "status": {"state": "Available"},
+                    "metadata": {"name": it.name, "namespace": namespace},
+                    "apiVersion": "agent.wecode.io/v1",
+                }
+
+                db_obj = Kind(
+                    user_id=user_id,
+                    kind="Model",
+                    name=it.name,
+                    namespace=namespace,
+                    json=json_data,
+                    is_active=getattr(it, "is_active", True),
+                )
+                db.add(db_obj)
+                db.commit()
+                db.refresh(db_obj)
+                created.append(db_obj)
+        except Exception as e:
+            logger.warning(f"Failed to process model {it.name}: {e}")
+            skipped.append({"name": it.name, "reason": str(e)})
+            continue
+
+    # Convert Kind objects to ModelInDB objects
+    created_models = []
+    for db_obj in created:
         model_data = {
-            "id": pm.id,
-            "name": pm.name,
-            "config": pm.json.get("spec", {}).get("modelConfig", {}),
-            "is_active": pm.is_active,
-            "created_at": pm.created_at,
-            "updated_at": pm.updated_at,
+            "id": db_obj.id,
+            "name": db_obj.name,
+            "config": db_obj.json.get("spec", {}).get("modelConfig", {}),
+            "is_active": db_obj.is_active,
+            "created_at": db_obj.created_at,
+            "updated_at": db_obj.updated_at,
         }
-        updated.append(ModelInDB.model_validate(model_data))
+        created_models.append(ModelInDB.model_validate(model_data))
+
+    updated_models = []
+    for db_obj in updated:
+        model_data = {
+            "id": db_obj.id,
+            "name": db_obj.name,
+            "config": db_obj.json.get("spec", {}).get("modelConfig", {}),
+            "is_active": db_obj.is_active,
+            "created_at": db_obj.created_at,
+            "updated_at": db_obj.updated_at,
+        }
+        updated_models.append(ModelInDB.model_validate(model_data))
 
     return {
-        "created": created,
-        "updated": updated,
-        "skipped": result.get("skipped", []),
+        "created": created_models,
+        "updated": updated_models,
+        "skipped": skipped,
     }
 
 
@@ -259,29 +450,141 @@ def get_model(
 def update_model(
     model_id: int,
     model_update: ModelUpdate,
+    scope: Optional[str] = Query(None, description="Scope for resource update"),
     current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Update Model information
+
+    Parameters:
+    - scope: Scope for resource update ('default' or 'group:{name}')
     """
-    return public_model_service.update_model(
-        db=db, model_id=model_id, obj_in=model_update, current_user=current_user
-    )
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for update operations
+    scope_service.validate_scope_for_operation(scope_info, "update")
+
+    # Get the model to check its namespace
+    model = db.query(Kind).filter(
+        Kind.id == model_id,
+        Kind.kind == "Model",
+        Kind.is_active == True,
+    ).first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Check permissions based on model's namespace
+    if model.namespace != "default":
+        # This is a group resource, validate group permission
+        scope_service.validate_group_access(
+            db=db,
+            group_name=model.namespace,
+            user_id=current_user.id,
+            required_permission="edit",
+        )
+    elif model.user_id != current_user.id and model.user_id != 0:
+        # Personal resource owned by another user
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to update this model"
+        )
+
+    # If scope is provided and it's a group scope, validate it matches the model's namespace
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        if model.namespace != scope_info.group_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Scope mismatch: model belongs to namespace '{model.namespace}', not '{scope_info.group_name}'"
+            )
+
+    # Update the model
+    if isinstance(model.json, dict):
+        model_crd = ModelCRD.model_validate(model.json)
+        # Update config
+        if model_update.config:
+            model_crd.spec.modelConfig = model_update.config
+        model.json = model_crd.model_dump()
+
+    if model_update.is_active is not None:
+        model.is_active = model_update.is_active
+
+    db.add(model)
+    db.commit()
+    db.refresh(model)
+
+    # Convert to ModelInDB format
+    model_data = {
+        "id": model.id,
+        "name": model.name,
+        "config": model.json.get("spec", {}).get("modelConfig", {}),
+        "is_active": model.is_active,
+        "created_at": model.created_at,
+        "updated_at": model.updated_at,
+    }
+    return ModelInDB.model_validate(model_data)
 
 
 @router.delete("/{model_id}")
 def delete_model(
     model_id: int,
+    scope: Optional[str] = Query(None, description="Scope for resource deletion"),
     current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Soft delete Model (set is_active to False)
+
+    Parameters:
+    - scope: Scope for resource deletion ('default' or 'group:{name}')
     """
-    public_model_service.delete_model(
-        db=db, model_id=model_id, current_user=current_user
-    )
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for delete operations
+    scope_service.validate_scope_for_operation(scope_info, "delete")
+
+    # Get the model to check its namespace
+    model = db.query(Kind).filter(
+        Kind.id == model_id,
+        Kind.kind == "Model",
+        Kind.is_active == True,
+    ).first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Check permissions based on model's namespace
+    if model.namespace != "default":
+        # This is a group resource, validate group permission
+        scope_service.validate_group_access(
+            db=db,
+            group_name=model.namespace,
+            user_id=current_user.id,
+            required_permission="delete",
+        )
+    elif model.user_id != current_user.id and model.user_id != 0:
+        # Personal resource owned by another user
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to delete this model"
+        )
+
+    # If scope is provided and it's a group scope, validate it matches the model's namespace
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        if model.namespace != scope_info.group_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Scope mismatch: model belongs to namespace '{model.namespace}', not '{scope_info.group_name}'"
+            )
+
+    # Soft delete
+    model.is_active = False
+    db.add(model)
+    db.commit()
+
     return {"message": "Model deleted successfully"}
 
 

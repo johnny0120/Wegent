@@ -19,6 +19,7 @@ from app.core.cache import cache_manager
 from app.models.kind import Kind
 from app.models.user import User
 from app.schemas.kind import Shell as ShellCRD
+from app.services.scope_service import scope_service, ScopeType
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class UnifiedShell(BaseModel):
     """Unified shell representation for API responses"""
 
     name: str
-    type: str  # 'public' or 'user'
+    type: str  # 'public', 'user', or 'group'
     displayName: Optional[str] = None
     shellType: str  # Agent type: 'ClaudeCode', 'Agno', 'Dify', etc.
     baseImage: Optional[str] = None
@@ -42,6 +43,7 @@ class UnifiedShell(BaseModel):
     executionType: Optional[str] = (
         None  # 'local_engine' or 'external_api' (from labels)
     )
+    groupName: Optional[str] = None  # Group name for group resources
 
 
 class ShellCreateRequest(BaseModel):
@@ -145,36 +147,71 @@ def _user_shell_to_unified(kind: Kind) -> UnifiedShell:
         baseShellRef=shell_crd.spec.baseShellRef,
         supportModel=shell_crd.spec.supportModel,
         executionType=labels.get("type"),
+        groupName=None,
+    )
+
+
+def _group_shell_to_unified(kind: Kind) -> UnifiedShell:
+    """Convert Kind (group shell) to UnifiedShell"""
+    shell_crd = ShellCRD.model_validate(kind.json)
+    labels = shell_crd.metadata.labels or {}
+    return UnifiedShell(
+        name=kind.name,
+        type="group",
+        displayName=shell_crd.metadata.displayName or kind.name,
+        shellType=shell_crd.spec.shellType,
+        baseImage=shell_crd.spec.baseImage,
+        baseShellRef=shell_crd.spec.baseShellRef,
+        supportModel=shell_crd.spec.supportModel,
+        executionType=labels.get("type"),
+        groupName=kind.namespace,
     )
 
 
 @router.get("/unified", response_model=dict)
 def list_unified_shells(
+    scope: Optional[str] = Query(None, description="Scope for resource query"),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
     """
-        Get unified list of all available shells (both public and user-defined).
+    Get unified list of all available shells (public, user-defined, and group).
 
-        Each shell includes a 'type' field ('public' or 'user') to identify its source.
+    This endpoint aggregates shells from:
+    - Public shells (type='public'): Shared across all users
+    - User-defined shells (type='user'): Private to the current user
+    - Group shells (type='group'): Shared within groups (when scope='all')
+
+    Each shell includes a 'type' field to identify its source, and 'groupName'
+    for group resources.
+
+    Parameters:
+    - scope: Scope for resource query ('default', 'all', or 'group:{name}')
+
     Response:
     {
       "data": [
         {
           "name": "shell-name",
-          "type": "public" | "user",
+          "type": "public" | "user" | "group",
           "displayName": "Human Readable Name",
           "shellType": "ClaudeCode",
           "baseImage": "ghcr.io/...",
-          "executionType": "local_engine" | "external_api"
+          "executionType": "local_engine" | "external_api",
+          "groupName": "group-name"  // Only for group resources
         }
       ]
     }
-        }
     """
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate scope for list operation
+    scope_service.validate_scope_for_operation(scope_info, "list")
+
     result = []
 
-    # Get public shells from kinds table (user_id=0)
+    # Always include public shells
     public_shells = (
         db.query(Kind)
         .filter(
@@ -191,23 +228,92 @@ def list_unified_shells(
         except Exception as e:
             logger.warning(f"Failed to parse public shell {shell.name}: {e}")
 
-    # Get user-defined shells
-    user_shells = (
-        db.query(Kind)
-        .filter(
-            Kind.user_id == current_user.id,
-            Kind.kind == "Shell",
-            Kind.namespace == "default",
-            Kind.is_active == True,  # noqa: E712
+    # Handle different scope types
+    if scope_info.scope_type == ScopeType.DEFAULT:
+        # Default: personal shells only
+        user_shells = (
+            db.query(Kind)
+            .filter(
+                Kind.user_id == current_user.id,
+                Kind.kind == "Shell",
+                Kind.namespace == "default",
+                Kind.is_active == True,  # noqa: E712
+            )
+            .order_by(Kind.name.asc())
+            .all()
         )
-        .order_by(Kind.name.asc())
-        .all()
-    )
-    for shell in user_shells:
-        try:
-            result.append(_user_shell_to_unified(shell))
-        except Exception as e:
-            logger.warning(f"Failed to parse user shell {shell.name}: {e}")
+        for shell in user_shells:
+            try:
+                result.append(_user_shell_to_unified(shell))
+            except Exception as e:
+                logger.warning(f"Failed to parse user shell {shell.name}: {e}")
+
+    elif scope_info.scope_type == ScopeType.ALL:
+        # All: personal + all group shells user has access to
+        user_shells = (
+            db.query(Kind)
+            .filter(
+                Kind.user_id == current_user.id,
+                Kind.kind == "Shell",
+                Kind.namespace == "default",
+                Kind.is_active == True,  # noqa: E712
+            )
+            .order_by(Kind.name.asc())
+            .all()
+        )
+        for shell in user_shells:
+            try:
+                result.append(_user_shell_to_unified(shell))
+            except Exception as e:
+                logger.warning(f"Failed to parse user shell {shell.name}: {e}")
+
+        # Get user's groups
+        user_groups = scope_service.get_user_groups(db, current_user.id)
+
+        if user_groups:
+            # Get group shells
+            group_shells = (
+                db.query(Kind)
+                .filter(
+                    Kind.kind == "Shell",
+                    Kind.namespace.in_(user_groups),
+                    Kind.is_active == True,  # noqa: E712
+                )
+                .order_by(Kind.name.asc())
+                .all()
+            )
+            for shell in group_shells:
+                try:
+                    result.append(_group_shell_to_unified(shell))
+                except Exception as e:
+                    logger.warning(f"Failed to parse group shell {shell.name}: {e}")
+
+    elif scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        # Group: specific group shells + public shells
+        # Validate group access
+        scope_service.validate_group_access(
+            db=db,
+            group_name=scope_info.group_name,
+            user_id=current_user.id,
+            required_permission="view",
+        )
+
+        # Get group shells
+        group_shells = (
+            db.query(Kind)
+            .filter(
+                Kind.kind == "Shell",
+                Kind.namespace == scope_info.group_name,
+                Kind.is_active == True,  # noqa: E712
+            )
+            .order_by(Kind.name.asc())
+            .all()
+        )
+        for shell in group_shells:
+            try:
+                result.append(_group_shell_to_unified(shell))
+            except Exception as e:
+                logger.warning(f"Failed to parse group shell {shell.name}: {e}")
 
     return {"data": [s.model_dump() for s in result]}
 
@@ -216,19 +322,52 @@ def list_unified_shells(
 def get_unified_shell(
     shell_name: str,
     shell_type: Optional[str] = Query(
-        None, description="Shell type ('public' or 'user')"
+        None, description="Shell type ('public', 'user', or 'group')"
     ),
+    scope: Optional[str] = Query(None, description="Scope for resource query"),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
     """
-    Get a specific shell by name, optionally with type hint.
+    Get a specific shell by name, optionally with type hint and scope.
 
     If shell_type is not provided, it will try to find the shell
     in the following order:
     1. User's own shells (type='user')
     2. Public shells (type='public')
+    3. Group shells (type='group', if scope is provided)
+
+    Parameters:
+    - shell_name: Shell name
+    - shell_type: Optional shell type hint ('public', 'user', or 'group')
+    - scope: Scope for resource query ('default', 'group:{name}')
+
+    Response:
+    {
+      "name": "shell-name",
+      "type": "public" | "user" | "group",
+      "displayName": "Human Readable Name",
+      "shellType": "ClaudeCode",
+      "baseImage": "ghcr.io/...",
+      "executionType": "local_engine" | "external_api",
+      "groupName": "group-name"  // Only for group resources
+    }
     """
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for get operations
+    scope_service.validate_scope_for_operation(scope_info, "get")
+
+    # If scope is group, validate user has access
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        scope_service.validate_group_access(
+            db=db,
+            group_name=scope_info.group_name,
+            user_id=current_user.id,
+            required_permission="view",
+        )
+
     # Try user shells first if no type specified or type is 'user'
     if shell_type in (None, "user"):
         user_shell = (
@@ -248,18 +387,38 @@ def get_unified_shell(
             raise HTTPException(status_code=404, detail="User shell not found")
 
     # Try public shells from kinds table (user_id=0)
-    public_shell = (
-        db.query(Kind)
-        .filter(
-            Kind.user_id == 0,
-            Kind.kind == "Shell",
-            Kind.name == shell_name,
-            Kind.is_active == True,  # noqa: E712
+    if shell_type in (None, "public"):
+        public_shell = (
+            db.query(Kind)
+            .filter(
+                Kind.user_id == 0,
+                Kind.kind == "Shell",
+                Kind.name == shell_name,
+                Kind.is_active == True,  # noqa: E712
+            )
+            .first()
         )
-        .first()
-    )
-    if public_shell:
-        return _public_shell_to_unified(public_shell).model_dump()
+        if public_shell:
+            return _public_shell_to_unified(public_shell).model_dump()
+        if shell_type == "public":
+            raise HTTPException(status_code=404, detail="Public shell not found")
+
+    # Try group shells if scope is provided and type is 'group'
+    if shell_type in (None, "group") and scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        group_shell = (
+            db.query(Kind)
+            .filter(
+                Kind.kind == "Shell",
+                Kind.name == shell_name,
+                Kind.namespace == scope_info.group_name,
+                Kind.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if group_shell:
+            return _group_shell_to_unified(group_shell).model_dump()
+        if shell_type == "group":
+            raise HTTPException(status_code=404, detail="Group shell not found")
 
     raise HTTPException(status_code=404, detail="Shell not found")
 
@@ -267,14 +426,37 @@ def get_unified_shell(
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
 def create_shell(
     request: ShellCreateRequest,
+    scope: Optional[str] = Query(None, description="Scope for resource creation"),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
     """
-    Create a user-defined shell.
+    Create a user-defined or group shell.
 
     The shell must be based on an existing public shell (baseShellRef).
+
+    Parameters:
+    - scope: Scope for resource creation ('default' or 'group:{name}')
     """
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for create operations
+    scope_service.validate_scope_for_operation(scope_info, "create")
+
+    # Determine namespace based on scope
+    namespace = "default"
+
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        # Validate user has create permission in the group
+        scope_service.validate_group_access(
+            db=db,
+            group_name=scope_info.group_name,
+            user_id=current_user.id,
+            required_permission="create",
+        )
+        namespace = scope_info.group_name
+
     # Validate name format
     name_regex = r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$"
     if not re.match(name_regex, request.name):
@@ -283,20 +465,23 @@ def create_shell(
             detail="Shell name must contain only lowercase letters, numbers, and hyphens",
         )
 
-    # Check if name already exists for this user
+    # Check if name already exists in the target namespace
     existing = (
         db.query(Kind)
         .filter(
             Kind.user_id == current_user.id,
             Kind.kind == "Shell",
             Kind.name == request.name,
-            Kind.namespace == "default",
+            Kind.namespace == namespace,
             Kind.is_active == True,  # noqa: E712
         )
         .first()
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Shell name already exists")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Shell name '{request.name}' already exists in namespace '{namespace}'"
+        )
 
     # Validate baseShellRef - must be a public shell with local_engine type from kinds table
     base_shell = (
@@ -348,9 +533,9 @@ def create_shell(
         "kind": "Shell",
         "metadata": {
             "name": request.name,
-            "namespace": "default",
+            "namespace": namespace,
             "displayName": request.displayName,
-            "labels": {"type": "local_engine"},  # User shells inherit local_engine type
+            "labels": {"type": "local_engine"},  # User/group shells inherit local_engine type
         },
         "spec": {
             "shellType": base_shell_crd.spec.shellType,  # Inherit shellType from base shell
@@ -365,7 +550,7 @@ def create_shell(
         user_id=current_user.id,
         kind="Shell",
         name=request.name,
-        namespace="default",
+        namespace=namespace,
         json=shell_crd,
         is_active=True,
     )
@@ -373,35 +558,66 @@ def create_shell(
     db.commit()
     db.refresh(db_obj)
 
-    return _user_shell_to_unified(db_obj).model_dump()
+    # Return appropriate unified shell based on namespace
+    if namespace == "default":
+        return _user_shell_to_unified(db_obj).model_dump()
+    else:
+        return _group_shell_to_unified(db_obj).model_dump()
 
 
 @router.put("/{shell_name}", response_model=dict)
 def update_shell(
     shell_name: str,
     request: ShellUpdateRequest,
+    scope: Optional[str] = Query(None, description="Scope for resource update"),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
     """
-    Update a user-defined shell.
+    Update a user-defined or group shell.
 
-    Only user-defined shells can be updated. Public shells are read-only.
+    Only user-defined and group shells can be updated. Public shells are read-only.
+
+    Parameters:
+    - scope: Scope for resource update ('default' or 'group:{name}')
     """
-    # Get user shell
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for update operations
+    scope_service.validate_scope_for_operation(scope_info, "update")
+
+    # Get the shell - try to find by name and user
     shell = (
         db.query(Kind)
         .filter(
             Kind.user_id == current_user.id,
             Kind.kind == "Shell",
             Kind.name == shell_name,
-            Kind.namespace == "default",
             Kind.is_active == True,  # noqa: E712
         )
         .first()
     )
     if not shell:
-        raise HTTPException(status_code=404, detail="User shell not found")
+        raise HTTPException(status_code=404, detail="Shell not found")
+
+    # Check permissions based on shell's namespace
+    if shell.namespace != "default":
+        # This is a group resource, validate group permission
+        scope_service.validate_group_access(
+            db=db,
+            group_name=shell.namespace,
+            user_id=current_user.id,
+            required_permission="edit",
+        )
+
+    # If scope is provided and it's a group scope, validate it matches the shell's namespace
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        if shell.namespace != scope_info.group_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Scope mismatch: shell belongs to namespace '{shell.namespace}', not '{scope_info.group_name}'"
+            )
 
     # Parse existing CRD
     shell_crd = ShellCRD.model_validate(shell.json)
@@ -435,34 +651,65 @@ def update_shell(
     db.commit()
     db.refresh(shell)
 
-    return _user_shell_to_unified(shell).model_dump()
+    # Return appropriate unified shell based on namespace
+    if shell.namespace == "default":
+        return _user_shell_to_unified(shell).model_dump()
+    else:
+        return _group_shell_to_unified(shell).model_dump()
 
 
 @router.delete("/{shell_name}")
 def delete_shell(
     shell_name: str,
+    scope: Optional[str] = Query(None, description="Scope for resource deletion"),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
     """
-    Delete a user-defined shell.
+    Delete a user-defined or group shell.
 
-    Only user-defined shells can be deleted. Public shells cannot be deleted.
+    Only user-defined and group shells can be deleted. Public shells cannot be deleted.
+
+    Parameters:
+    - scope: Scope for resource deletion ('default' or 'group:{name}')
     """
-    # Get user shell
+    # Parse and validate scope
+    scope_info = scope_service.parse_scope(scope)
+
+    # Validate that "all" scope is not allowed for delete operations
+    scope_service.validate_scope_for_operation(scope_info, "delete")
+
+    # Get the shell - try to find by name and user
     shell = (
         db.query(Kind)
         .filter(
             Kind.user_id == current_user.id,
             Kind.kind == "Shell",
             Kind.name == shell_name,
-            Kind.namespace == "default",
             Kind.is_active == True,  # noqa: E712
         )
         .first()
     )
     if not shell:
-        raise HTTPException(status_code=404, detail="User shell not found")
+        raise HTTPException(status_code=404, detail="Shell not found")
+
+    # Check permissions based on shell's namespace
+    if shell.namespace != "default":
+        # This is a group resource, validate group permission
+        scope_service.validate_group_access(
+            db=db,
+            group_name=shell.namespace,
+            user_id=current_user.id,
+            required_permission="delete",
+        )
+
+    # If scope is provided and it's a group scope, validate it matches the shell's namespace
+    if scope_info.scope_type == ScopeType.GROUP and scope_info.group_name:
+        if shell.namespace != scope_info.group_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Scope mismatch: shell belongs to namespace '{shell.namespace}', not '{scope_info.group_name}'"
+            )
 
     # Hard delete
     db.delete(shell)
