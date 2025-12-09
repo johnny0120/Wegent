@@ -305,12 +305,18 @@ const ModelEdit: React.FC<ModelEditProps> = ({
           });
         }
       } else {
-        // Check if we're creating a group model
-        if (isGroupContext && selectedGroupId) {
-          await groupsApi.createGroupModel(selectedGroupId, modelCRD);
-          toast({
-            title: '群组模型创建成功',
-          });
+        // Creating new model
+        // Determine scope based on context
+        if (isGroupContext && selectedGroupId && groups.length > 0) {
+          const selectedGroup = groups.find(group => group.id === selectedGroupId);
+          if (selectedGroup) {
+            await modelApis.createModel(modelCRD, `group:${selectedGroup.name}`);
+            toast({
+              title: '群组模型创建成功',
+            });
+          } else {
+            throw new Error('Selected group not found');
+          }
         } else {
           await modelApis.createModel(modelCRD);
           toast({

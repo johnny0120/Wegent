@@ -406,10 +406,26 @@ const ShellEdit: React.FC<ShellEditProps> = ({
               baseImage: baseImage.trim(),
             },
           };
-          await groupsApi.createGroupShell(selectedGroupId, shellCRD);
-          toast({
-            title: '群组执行器创建成功',
-          });
+
+          // Create group shell using unified API with scope parameter
+          if (groups.length > 0) {
+            const selectedGroup = groups.find(group => group.id === selectedGroupId);
+            if (selectedGroup) {
+              await shellApis.createShell({
+                name: name.trim(),
+                displayName: displayName.trim() || undefined,
+                baseShellRef,
+                baseImage: baseImage.trim(),
+              }, `group:${selectedGroup.name}`);
+              toast({
+                title: '群组执行器创建成功',
+              });
+            } else {
+              throw new Error('Selected group not found');
+            }
+          } else {
+            throw new Error('No groups available');
+          }
         } else {
           await shellApis.createShell({
             name: name.trim(),

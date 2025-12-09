@@ -92,10 +92,16 @@ export default function BotList({ groupId, groups = [] }: BotListProps = {}) {
 
       setIsLoading(true);
       try {
-        if (isGroupContext && selectedGroupId) {
-          // Load group bots
-          const response = await groupsApi.listGroupBots(selectedGroupId);
-          setBotsSorted((response as any).items || []);
+        if (isGroupContext && selectedGroupId && groups.length > 0) {
+          // Load group bots using unified API with scope parameter
+          const selectedGroup = groups.find(group => group.id === selectedGroupId);
+          if (selectedGroup) {
+            const response = await botApis.getBots({ page: 1, limit: 1000 }, `group:${selectedGroup.name}`);
+            setBotsSorted(response.items || []);
+          } else {
+            console.error('Selected group not found');
+            setBotsSorted([]);
+          }
         } else {
           // Load personal bots
           const bots = await fetchBotsList();
@@ -112,7 +118,7 @@ export default function BotList({ groupId, groups = [] }: BotListProps = {}) {
       }
     }
     loadBots();
-  }, [selectedGroupId, isGroupContext, toast, setBotsSorted, t]);
+  }, [selectedGroupId, isGroupContext, groups, toast, setBotsSorted, t]);
 
   const handleCreateBot = () => {
     setCloningBot(null);

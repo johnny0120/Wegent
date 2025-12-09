@@ -199,15 +199,46 @@ export const modelApis = {
 
   /**
    * Create a new model
+   *
+   * @param model - Model CRD to create
+   * @param scope - Scope for resource creation:
+   *   - undefined or 'default': Create in personal namespace (default behavior)
+   *   - 'group:{name}': Create in specific group namespace
    */
-  async createModel(model: ModelCRD): Promise<ModelCRD> {
+  async createModel(model: ModelCRD, scope?: string): Promise<ModelCRD> {
+    if (scope && scope !== 'default') {
+      // Use new unified API with scope parameter
+      const params = new URLSearchParams();
+      params.append('scope', scope);
+      return apiClient.post(`/models?${params.toString()}`, {
+        name: model.metadata.name,
+        config: model.spec.modelConfig,
+      });
+    }
+    // Default behavior: use Kubernetes-style API
     return apiClient.post('/v1/namespaces/default/models', model);
   },
 
   /**
    * Update an existing model
+   *
+   * @param name - Model name
+   * @param model - Model CRD to update
+   * @param scope - Scope for resource update:
+   *   - undefined or 'default': Update in personal namespace (default behavior)
+   *   - 'group:{name}': Update in specific group namespace
    */
-  async updateModel(name: string, model: ModelCRD): Promise<ModelCRD> {
+  async updateModel(name: string, model: ModelCRD, scope?: string): Promise<ModelCRD> {
+    if (scope && scope !== 'default') {
+      // Use new unified API with scope parameter
+      const params = new URLSearchParams();
+      params.append('scope', scope);
+      return apiClient.put(`/models/${encodeURIComponent(name)}?${params.toString()}`, {
+        name: model.metadata.name,
+        config: model.spec.modelConfig,
+      });
+    }
+    // Default behavior: use Kubernetes-style API
     return apiClient.put(`/v1/namespaces/default/models/${encodeURIComponent(name)}`, model);
   },
 

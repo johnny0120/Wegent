@@ -306,9 +306,13 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
       try {
         let response;
         // Use group shells API if groupId is provided (not undefined and not null)
-        if (groupId !== undefined && groupId !== null) {
-          const { groupsApi } = await import('@/apis/groups');
-          response = await groupsApi.getGroupUnifiedShells(groupId);
+        if (groupId !== undefined && groupId !== null && groups.length > 0) {
+          const selectedGroup = groups.find(group => group.id === groupId);
+          if (selectedGroup) {
+            response = await shellApis.getUnifiedShells(`group:${selectedGroup.name}`);
+          } else {
+            throw new Error('Selected group not found');
+          }
         } else {
           // groupId is undefined or null means we're in personal context
           response = await shellApis.getUnifiedShells();
@@ -382,9 +386,13 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
 
         // Use group models API if groupId is provided
         let response;
-        if (groupId) {
-          const { groupsApi } = await import('@/apis/groups');
-          response = await groupsApi.getGroupUnifiedModels(groupId, shellType);
+        if (groupId && groups.length > 0) {
+          const selectedGroup = groups.find(group => group.id === groupId);
+          if (selectedGroup) {
+            response = await modelApis.getUnifiedModels(shellType, false, `group:${selectedGroup.name}`);
+          } else {
+            throw new Error('Selected group not found');
+          }
         } else {
           response = await modelApis.getUnifiedModels(shellType);
         }
@@ -783,25 +791,20 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
       };
 
       if (editingBotId && editingBotId > 0) {
-        // Edit existing bot
-        let updated;
-        if (groupId) {
-          // Use group bot API
-          const { groupsApi } = await import('@/apis/groups');
-          const response = await groupsApi.updateGroupBot(groupId, editingBotId, botReq);
-          updated = response.bot;
-        } else {
-          updated = await botApis.updateBot(editingBotId, botReq as UpdateBotRequest);
-        }
+        // Edit existing bot (bot ID is unique across all namespaces)
+        const updated = await botApis.updateBot(editingBotId, botReq as UpdateBotRequest);
         setBots(prev => prev.map(b => (b.id === editingBotId ? updated : b)));
       } else {
         // Create new bot
         let created;
-        if (groupId) {
-          // Use group bot API
-          const { groupsApi } = await import('@/apis/groups');
-          const response = await groupsApi.createGroupBot(groupId, botReq);
-          created = response.bot;
+        if (groupId && groups.length > 0) {
+          // Use group bot API with scope parameter
+          const selectedGroup = groups.find(group => group.id === groupId);
+          if (selectedGroup) {
+            created = await botApis.createBot(botReq, `group:${selectedGroup.name}`);
+          } else {
+            throw new Error('Selected group not found');
+          }
         } else {
           created = await botApis.createBot(botReq);
         }

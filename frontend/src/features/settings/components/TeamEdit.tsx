@@ -135,9 +135,14 @@ export default function TeamEdit(props: TeamEditProps) {
       try {
         if (isGroupContext) {
           // In group context, only load group shells if a group is selected
-          if (selectedGroupId) {
-            const shellsResponse = await groupsApi.getGroupUnifiedShells(selectedGroupId);
-            setShells(shellsResponse.data || []);
+          if (selectedGroupId && groups.length > 0) {
+            const selectedGroup = groups.find(group => group.id === selectedGroupId);
+            if (selectedGroup) {
+              const shellsResponse = await shellApis.getUnifiedShells(`group:${selectedGroup.name}`);
+              setShells(shellsResponse.data || []);
+            } else {
+              setShells([]);
+            }
           } else {
             // No group selected yet, clear shells
             setShells([]);
@@ -152,7 +157,7 @@ export default function TeamEdit(props: TeamEditProps) {
       }
     };
     fetchShells();
-  }, [selectedGroupId, isGroupContext]);
+  }, [selectedGroupId, isGroupContext, groups]);
 
   // Filter bots based on current mode, using shells to resolve custom shell runtime types
   const filteredBots = useMemo(() => {

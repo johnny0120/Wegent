@@ -55,8 +55,21 @@ export const botApis = {
     return apiClient.get(`/bots/${id}`);
   },
 
-  async createBot(data: CreateBotRequest): Promise<Bot> {
-    return apiClient.post('/bots', data);
+  /**
+   * Create a new bot
+   *
+   * @param data - Bot creation data
+   * @param scope - Scope for resource creation:
+   *   - undefined or 'default': Create in personal namespace (default behavior)
+   *   - 'group:{name}': Create in specific group namespace
+   */
+  async createBot(data: CreateBotRequest, scope?: string): Promise<Bot> {
+    const queryParams = new URLSearchParams();
+    if (scope) {
+      queryParams.append('scope', scope);
+    }
+    const queryString = queryParams.toString();
+    return apiClient.post(`/bots${queryString ? `?${queryString}` : ''}`, data);
   },
 
   async updateBot(id: number, data: UpdateBotRequest): Promise<Bot> {
