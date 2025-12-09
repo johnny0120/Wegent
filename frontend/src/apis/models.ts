@@ -72,12 +72,13 @@ export type ModelTypeEnum = 'public' | 'user' | 'group';
 
 export interface UnifiedModel {
   name: string;
-  type: ModelTypeEnum; // 'public' or 'user' - identifies model source
+  type: ModelTypeEnum; // 'public' or 'user' or 'group' - identifies model source
   displayName?: string | null;
   provider?: string | null; // 'openai' | 'claude'
   modelId?: string | null;
   config?: Record<string, unknown>;
   isActive?: boolean;
+  groupName?: string; // Group name for group resources
   creatorUserId?: number; // Creator user ID for group models
 }
 
@@ -121,14 +122,19 @@ export const modelApis = {
    * Get unified list of all available models (both public and user-defined)
    *
    * This is the recommended API for new implementations.
-   * Each model includes a 'type' field ('public' or 'user') to identify its source.
+   * Each model includes a 'type' field ('public', 'user', or 'group') to identify its source.
    *
    * @param shellType - Optional shell type to filter compatible models
    * @param includeConfig - Whether to include full model config in response
+   * @param scope - Scope for resource query:
+   *   - undefined or 'default': Personal + public models (default behavior)
+   *   - 'all': Personal + public + all group models user has access to
+   *   - 'group:{name}': Specific group + public models
    */
   async getUnifiedModels(
     shellType?: string,
-    includeConfig: boolean = false
+    includeConfig: boolean = false,
+    scope?: string
   ): Promise<UnifiedModelListResponse> {
     const params = new URLSearchParams();
     if (shellType) {
@@ -136,6 +142,9 @@ export const modelApis = {
     }
     if (includeConfig) {
       params.append('include_config', 'true');
+    }
+    if (scope) {
+      params.append('scope', scope);
     }
     const queryString = params.toString();
     return apiClient.get(`/models/unified${queryString ? `?${queryString}` : ''}`);
@@ -145,12 +154,22 @@ export const modelApis = {
    * Get a specific model by name and optional type
    *
    * @param modelName - Model name
-   * @param modelType - Optional model type ('public' or 'user')
+   * @param modelType - Optional model type ('public', 'user', or 'group')
+   * @param scope - Scope for resource query (required when modelType is 'group'):
+   *   - 'default': Search in personal namespace
+   *   - 'group:{name}': Search in specific group namespace
    */
-  async getUnifiedModel(modelName: string, modelType?: ModelTypeEnum): Promise<UnifiedModel> {
+  async getUnifiedModel(
+    modelName: string,
+    modelType?: ModelTypeEnum,
+    scope?: string
+  ): Promise<UnifiedModel> {
     const params = new URLSearchParams();
     if (modelType) {
       params.append('model_type', modelType);
+    }
+    if (scope) {
+      params.append('scope', scope);
     }
     const queryString = params.toString();
     return apiClient.get(

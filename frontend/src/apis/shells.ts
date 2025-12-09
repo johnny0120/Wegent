@@ -16,6 +16,7 @@ export interface UnifiedShell {
   baseShellRef?: string | null;
   supportModel?: string[] | null;
   executionType?: 'local_engine' | 'external_api' | null; // Shell execution type
+  groupName?: string; // Group name for group resources
 }
 
 export interface UnifiedShellListResponse {
@@ -83,22 +84,42 @@ export const shellApis = {
   /**
    * Get unified list of all available shells (both public and user-defined)
    *
-   * Each shell includes a 'type' field ('public' or 'user') to identify its source.
+   * Each shell includes a 'type' field ('public', 'user', or 'group') to identify its source.
+   *
+   * @param scope - Scope for resource query:
+   *   - undefined or 'default': Personal + public shells (default behavior)
+   *   - 'all': Personal + public + all group shells user has access to
+   *   - 'group:{name}': Specific group + public shells
    */
-  async getUnifiedShells(): Promise<UnifiedShellListResponse> {
-    return apiClient.get('/shells/unified');
+  async getUnifiedShells(scope?: string): Promise<UnifiedShellListResponse> {
+    const params = new URLSearchParams();
+    if (scope) {
+      params.append('scope', scope);
+    }
+    const queryString = params.toString();
+    return apiClient.get(`/shells/unified${queryString ? `?${queryString}` : ''}`);
   },
 
   /**
    * Get a specific shell by name and optional type
    *
    * @param shellName - Shell name
-   * @param shellType - Optional shell type ('public' or 'user')
+   * @param shellType - Optional shell type ('public', 'user', or 'group')
+   * @param scope - Scope for resource query (required when shellType is 'group'):
+   *   - 'default': Search in personal namespace
+   *   - 'group:{name}': Search in specific group namespace
    */
-  async getUnifiedShell(shellName: string, shellType?: ShellTypeEnum): Promise<UnifiedShell> {
+  async getUnifiedShell(
+    shellName: string,
+    shellType?: ShellTypeEnum,
+    scope?: string
+  ): Promise<UnifiedShell> {
     const params = new URLSearchParams();
     if (shellType) {
       params.append('shell_type', shellType);
+    }
+    if (scope) {
+      params.append('scope', scope);
     }
     const queryString = params.toString();
     return apiClient.get(
@@ -107,24 +128,64 @@ export const shellApis = {
   },
 
   /**
-   * Create a new user-defined shell
+   * Create a new user-defined or group shell
+   *
+   * @param request - Shell creation request
+   * @param scope - Scope for resource creation:
+   *   - undefined or 'default': Create in personal namespace (default behavior)
+   *   - 'group:{name}': Create in specific group namespace
    */
-  async createShell(request: ShellCreateRequest): Promise<UnifiedShell> {
-    return apiClient.post('/shells', request);
+  async createShell(request: ShellCreateRequest, scope?: string): Promise<UnifiedShell> {
+    const params = new URLSearchParams();
+    if (scope) {
+      params.append('scope', scope);
+    }
+    const queryString = params.toString();
+    return apiClient.post(`/shells${queryString ? `?${queryString}` : ''}`, request);
   },
 
   /**
-   * Update an existing user-defined shell
+   * Update an existing user-defined or group shell
+   *
+   * @param name - Shell name
+   * @param request - Shell update request
+   * @param scope - Scope for resource update:
+   *   - undefined or 'default': Update in personal namespace (default behavior)
+   *   - 'group:{name}': Update in specific group namespace
    */
-  async updateShell(name: string, request: ShellUpdateRequest): Promise<UnifiedShell> {
-    return apiClient.put(`/shells/${encodeURIComponent(name)}`, request);
+  async updateShell(
+    name: string,
+    request: ShellUpdateRequest,
+    scope?: string
+  ): Promise<UnifiedShell> {
+    const params = new URLSearchParams();
+    if (scope) {
+      params.append('scope', scope);
+    }
+    const queryString = params.toString();
+    return apiClient.put(
+      `/shells/${encodeURIComponent(name)}${queryString ? `?${queryString}` : ''}`,
+      request
+    );
   },
 
   /**
-   * Delete a user-defined shell
+   * Delete a user-defined or group shell
+   *
+   * @param name - Shell name
+   * @param scope - Scope for resource deletion:
+   *   - undefined or 'default': Delete from personal namespace (default behavior)
+   *   - 'group:{name}': Delete from specific group namespace
    */
-  async deleteShell(name: string): Promise<void> {
-    return apiClient.delete(`/shells/${encodeURIComponent(name)}`);
+  async deleteShell(name: string, scope?: string): Promise<void> {
+    const params = new URLSearchParams();
+    if (scope) {
+      params.append('scope', scope);
+    }
+    const queryString = params.toString();
+    return apiClient.delete(
+      `/shells/${encodeURIComponent(name)}${queryString ? `?${queryString}` : ''}`
+    );
   },
 
   /**
@@ -146,16 +207,16 @@ export const shellApis = {
   /**
    * Get public shells only (filter from unified list)
    */
-  async getPublicShells(): Promise<UnifiedShell[]> {
-    const response = await this.getUnifiedShells();
+  async getPublicShells(scope?: string): Promise<UnifiedShell[]> {
+    const response = await this.getUnifiedShells(scope);
     return (response.data || []).filter(shell => shell.type === 'public');
   },
 
   /**
    * Get local_engine type shells only (for base shell selection)
    */
-  async getLocalEngineShells(): Promise<UnifiedShell[]> {
-    const response = await this.getUnifiedShells();
+  async getLocalEngineShells(scope?: string): Promise<UnifiedShell[]> {
+    const response = await this.getUnifiedShells(scope);
     return (response.data || []).filter(
       shell => shell.type === 'public' && shell.executionType === 'local_engine'
     );
