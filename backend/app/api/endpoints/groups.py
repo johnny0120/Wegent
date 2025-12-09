@@ -465,6 +465,8 @@ async def list_group_teams(
     # Get group name by ID
     group_name = get_group_name_by_id(group_id, db)
     
+    logger.info(f"list_group_teams: group_id={group_id}, group_name={group_name}, user_id={current_user.id}")
+    
     # Check view permission
     has_perm, _ = group_service.check_permission(group_name, current_user.id, "view")
     if not has_perm:
@@ -484,6 +486,14 @@ async def list_group_teams(
 
     total = query.count()
     teams = query.offset(skip).limit(limit).all()
+    
+    logger.info(f"list_group_teams: Found {total} teams for group_name={group_name}")
+    
+    # Also log all teams in database for debugging
+    all_teams = db.query(Kind).filter(Kind.kind == "Team", Kind.is_active == True).all()
+    logger.info(f"list_group_teams: Total teams in database: {len(all_teams)}")
+    for team in all_teams:
+        logger.info(f"  Team: id={team.id}, name={team.name}, namespace={team.namespace}, user_id={team.user_id}")
 
     return {
         "total": total,
@@ -493,6 +503,7 @@ async def list_group_teams(
                 "name": t.name,
                 "namespace": t.namespace,
                 "json": t.json,
+                "is_active": t.is_active,
                 "created_at": t.created_at,
                 "updated_at": t.updated_at,
             }
@@ -894,7 +905,7 @@ async def get_group_unified_shells(
         
         unified_shells.append({
             "name": shell.name,
-            "type": "user",  # In group context, group shells are marked as 'user' type
+            "type": "group",  # Group shells are marked as 'group' type
             "displayName": metadata.get("displayName") or shell.name,
             "shellType": spec.get("shellType", shell.name),  # Fallback to shell name
             "baseImage": spec.get("baseImage"),

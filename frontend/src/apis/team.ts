@@ -12,6 +12,7 @@ export interface CreateTeamRequest {
   bots?: TeamBot[];
   workflow?: Record<string, unknown>;
   is_active?: boolean;
+  namespace?: string;
 }
 
 export interface TeamListResponse {

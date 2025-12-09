@@ -5,11 +5,11 @@
 import { apiClient } from './client';
 
 // Shell Types
-export type ShellTypeEnum = 'public' | 'user';
+export type ShellTypeEnum = 'public' | 'user' | 'group';
 
 export interface UnifiedShell {
   name: string;
-  type: ShellTypeEnum; // 'public' or 'user' - identifies shell source
+  type: ShellTypeEnum; // 'public', 'user', or 'group' - identifies shell source
   displayName?: string | null;
   shellType: string; // Agent type: 'ClaudeCode' | 'Agno' | 'Dify'
   baseImage?: string | null;

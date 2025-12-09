@@ -127,6 +127,7 @@
     "dify_parameters_refresh": "Refresh parameters",
     "dify_no_parameters": "No parameters configured for this application.",
     "custom_shell": "Custom",
+    "group_shell": "Group",
     "public_model": "Public"
   },
   "bots": {

@@ -37,6 +37,8 @@ interface TeamEditDrawerProps {
   setUnsavedPrompts?: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   /** List of allowed agent types for filtering when creating/editing bots */
   allowedAgents?: AgentType[];
+  /** Group ID for group context (optional) */
+  groupId?: number | null;
 }
 
 function PromptEdit({
@@ -315,7 +317,7 @@ function PromptEdit({
   );
 }
 
-export default function TeamEditDrawer(props: TeamEditDrawerProps) {
+export default function TeamEditDrawer(props: TeamEditProps) {
   const {
     bots,
     setBots,
@@ -330,6 +332,17 @@ export default function TeamEditDrawer(props: TeamEditDrawerProps) {
     cloningBot,
     setCloningBot,
   } = props;
+
+  // Use state to track groupId to ensure it's stable
+  // Convert null to undefined for BotEdit compatibility
+  const [stableGroupId, setStableGroupId] = React.useState<number | undefined>(
+    props.groupId ?? undefined
+  );
+
+  // Update stableGroupId when props.groupId changes
+  React.useEffect(() => {
+    setStableGroupId(props.groupId ?? undefined);
+  }, [props.groupId]);
 
   const handleClose = () => {
     setVisible(false);
@@ -357,6 +370,7 @@ export default function TeamEditDrawer(props: TeamEditDrawerProps) {
               }}
               toast={toast}
               allowedAgents={props.allowedAgents}
+              groupId={stableGroupId}
             />
           )}
           {mode === 'prompt' && (

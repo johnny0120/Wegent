@@ -135,35 +135,35 @@ const GroupShellList: React.FC<GroupShellListProps> = ({ groupId }) => {
       getCurrentUserRole();
     }
   }, [fetchShells, selectedGroupId, getCurrentUserRole]);
+// Convert unified shells to display format, filtering for group and public shells
+const displayShells: DisplayShell[] = React.useMemo(() => {
+  const result: DisplayShell[] = [];
 
-  // Convert unified shells to display format, filtering for group and public shells
-  const displayShells: DisplayShell[] = React.useMemo(() => {
-    const result: DisplayShell[] = [];
-
-    for (const shell of unifiedShells) {
-      const isPublic = shell.type === 'public';
-      // For shells, we assume non-public shells in group context are group shells
-      // since the backend API should filter to only return group and public shells
-      const isGroup = shell.type === 'user'; // In group context, 'user' type shells are actually group shells
-      
-      // Only show public and group shells in group context
-      // Personal user shells are excluded by the backend API
-      if (!isPublic && !isGroup) continue;
-
-      result.push({
-        name: shell.name,
-        displayName: shell.displayName || shell.name,
-        shellType: shell.shellType,
-        baseImage: shell.baseImage || undefined,
-        baseShellRef: shell.baseShellRef || undefined,
-        executionType: shell.executionType || undefined,
-        isPublic,
-        isGroup,
-        config: {}, // Shell config structure may differ from models
-        creatorUserId: (shell as any).creatorUserId, // Include creator user ID for group shells
-      });
+  for (const shell of unifiedShells) {
+    const isPublic = shell.type === 'public';
+    // Group shells have type 'group'
+    const isGroup = shell.type === 'group';
+    
+    // Only show public and group shells in group context
+    if (!isPublic && !isGroup) {
+      continue;
     }
 
+    result.push({
+      name: shell.name,
+      displayName: shell.displayName || shell.name,
+      shellType: shell.shellType,
+      baseImage: shell.baseImage || undefined,
+      baseShellRef: shell.baseShellRef || undefined,
+      executionType: shell.executionType || undefined,
+      isPublic,
+      isGroup,
+      config: {}, // Shell config structure may differ from models
+      creatorUserId: (shell as any).creatorUserId, // Include creator user ID for group shells
+    });
+  }
+  
+  // Sort shells: group shells first, then public shells
     // Sort shells: group shells first, then public shells
     return result.sort((a, b) => {
       if (a.isGroup && !b.isGroup) return -1;

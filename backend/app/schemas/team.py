@@ -42,6 +42,7 @@ class TeamBase(BaseModel):
     bots: List[BotInfo]
     workflow: Optional[dict[str, Any]] = None
     is_active: bool = True
+    namespace: Optional[str] = None
 
 
 class TeamCreate(TeamBase):

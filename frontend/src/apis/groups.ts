@@ -35,18 +35,10 @@ export const groupsApi = {
     skip?: number
     limit?: number
   }): Promise<GroupListResponse> => {
-    console.log('groupsApi.listGroups called with params:', params);
-    try {
-      console.log('Making API call to:', GROUPS_BASE);
-      const response = await apiClient.get<GroupListResponse>(GROUPS_BASE, {
-        params,
-      });
-      console.log('API client returned:', response);
-      return response;
-    } catch (error) {
-      console.error('Error in groupsApi.listGroups:', error);
-      throw error;
-    }
+    const response = await apiClient.get<GroupListResponse>(GROUPS_BASE, {
+      params,
+    });
+    return response;
   },
 
   /**
@@ -242,20 +234,6 @@ export const groupsApi = {
   deleteGroupModel: async (groupId: number, modelId: string): Promise<void> => {
     await apiClient.delete(`${GROUPS_BASE}/${groupId}/models/${modelId}`)
   },
-
-  /**
-   * Get teams in group
-   */
-  listGroupTeams: async (
-    groupId: number,
-    params?: { skip?: number; limit?: number }
-  ) => {
-    const response = await apiClient.get(`${GROUPS_BASE}/${groupId}/teams`, {
-      params,
-    })
-    return response
-  },
-
   /**
    * Get bots in group
    */

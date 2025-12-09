@@ -68,14 +68,17 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         """
         Create user Team using kinds table
         """
-        # Check duplicate team name under the same user (only active teams)
+        # Use provided namespace or default to "default"
+        namespace = obj_in.namespace if obj_in.namespace else "default"
+        
+        # Check duplicate team name under the same user and namespace (only active teams)
         existing = (
             db.query(Kind)
             .filter(
                 Kind.user_id == user_id,
                 Kind.kind == "Team",
                 Kind.name == obj_in.name,
-                Kind.namespace == "default",
+                Kind.namespace == namespace,
                 Kind.is_active == True,
             )
             .first()
@@ -138,7 +141,7 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             "kind": "Team",
             "spec": {"members": members, "collaborationModel": collaboration_model},
             "status": {"state": "Available"},
-            "metadata": {"name": obj_in.name, "namespace": "default"},
+            "metadata": {"name": obj_in.name, "namespace": namespace},
             "apiVersion": "agent.wecode.io/v1",
         }
 
@@ -146,7 +149,7 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             user_id=user_id,
             kind="Team",
             name=obj_in.name,
-            namespace="default",
+            namespace=namespace,
             json=team_json,
             is_active=True,
         )

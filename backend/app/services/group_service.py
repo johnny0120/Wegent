@@ -837,29 +837,14 @@ class GroupService(BaseService[Group, GroupCreate, GroupUpdate]):
                 detail=f"Bot '{bot_name}' already exists in this group"
             )
 
-        # Convert flat bot_data to BotCreate schema
-        bot_create = BotCreate(**bot_data)
+        # Convert flat bot_data to BotCreate schema and set namespace
+        bot_create = BotCreate(**bot_data, namespace=group_name)
 
         # Use bot_kinds_service to create bot with proper CRD structure
+        # This will create Bot, Ghost, and optionally Model with the correct namespace
         bot_dict = bot_kinds_service.create_with_user(
             db=self.db, obj_in=bot_create, user_id=user_id
         )
-
-        # Update the created bot to belong to the group (change namespace)
-        bot_kind = (
-            self.db.query(Kind)
-            .filter(
-                Kind.id == bot_dict["id"],
-                Kind.user_id == user_id,
-                Kind.kind == "Bot",
-            )
-            .first()
-        )
-
-        if bot_kind:
-            bot_kind.namespace = group_name
-            self.db.commit()
-            self.db.refresh(bot_kind)
 
         return bot_dict
 

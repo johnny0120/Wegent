@@ -40,6 +40,8 @@ export interface SoloModeEditorProps {
   editingTeamId?: number;
   /** Ref to access BotEdit methods for external saving */
   botEditRef?: React.RefObject<BotEditRef | null>;
+  /** Group ID for group context (optional) */
+  groupId?: number | null;
 }
 
 export default function SoloModeEditor({
@@ -54,6 +56,7 @@ export default function SoloModeEditor({
   allowedAgents,
   editingTeamId,
   botEditRef,
+  groupId,
 }: SoloModeEditorProps) {
   const { t } = useTranslation('common');
 
@@ -293,6 +296,7 @@ export default function SoloModeEditor({
               hideActions={true}
               onCancelEdit={handleCancelCreate}
               allowedAgents={allowedAgents}
+              groupId={groupId ?? undefined}
             />
           </div>
         ) : selectedBotId !== null ? (
@@ -310,6 +314,7 @@ export default function SoloModeEditor({
               readOnly={false}
               hideActions={true}
               allowedAgents={allowedAgents}
+              groupId={groupId ?? undefined}
             />
           </div>
         ) : (

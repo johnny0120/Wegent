@@ -149,6 +149,7 @@
     "dify_parameters_refresh": "刷新参数",
     "dify_no_parameters": "此应用未配置输入参数。",
     "custom_shell": "自定义",
+    "group_shell": "群组",
     "public_model": "公共"
   },
   "messages": {

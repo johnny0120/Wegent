@@ -359,7 +359,7 @@ const GroupTeamList: React.FC<GroupTeamListProps> = ({ groupId }) => {
                             </Tag>
                           )}
                           {getTeamStatusLabel(team)}
-                          {team.bots.length > 0 && (
+                          {team.bots && team.bots.length > 0 && (
                             <Tag variant="info" className="hidden sm:inline-flex">
                               {team.bots.length} {team.bots.length === 1 ? 'Bot' : 'Bots'}
                             </Tag>

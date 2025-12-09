@@ -20,6 +20,7 @@ class BotCreate(BaseModel):
     mcp_servers: Optional[dict[str, Any]] = None
     skills: Optional[List[str]] = None
     is_active: bool = True
+    namespace: Optional[str] = None
 
 
 class BotUpdate(BaseModel):

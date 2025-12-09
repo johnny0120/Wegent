@@ -100,8 +100,8 @@ export default function TeamEdit(props: TeamEditProps) {
   // Load groups if not provided (only when in group context)
   const [loadedGroups, setLoadedGroups] = useState<any[]>(groups);
 
-  // Selected group for team creation/editing
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId || null);
+  // Selected group for team creation/editing - initialize with groupId prop
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId ?? null);
 
   // Check if we're in group context
   const isGroupContext = groupId !== undefined && groupId !== null;
@@ -109,32 +109,50 @@ export default function TeamEdit(props: TeamEditProps) {
   // Ref for BotEdit in solo mode
   const botEditRef = useRef<BotEditRef | null>(null);
 
-  // Load shells and groups data on mount
+  // Load groups data on mount (only in group context)
+  useEffect(() => {
+    const fetchGroups = async () => {
+      if (!isGroupContext) return;
+      
+      try {
+        const groupsResponse = await groupsApi.listGroups();
+        const groupItems = (groupsResponse as any).items || [];
+        setLoadedGroups(groupItems);
+        // Auto-select the provided groupId or first group if none selected
+        if (!selectedGroupId && groupItems.length > 0) {
+          setSelectedGroupId(groupItems[0].id);
+        }
+      } catch (error) {
+        console.error('Failed to fetch groups:', error);
+      }
+    };
+    fetchGroups();
+  }, [isGroupContext]); // Only run when isGroupContext changes
+
+  // Load shells based on context (group or personal)
   useEffect(() => {
     const fetchShells = async () => {
       try {
-        // Only load groups if in group context
-        if (isGroupContext && groups.length === 0) {
-          const [shellsResponse, groupsResponse] = await Promise.all([
-            shellApis.getUnifiedShells(),
-            groupsApi.listGroups()
-          ]);
-          setShells(shellsResponse.data || []);
-          setLoadedGroups((groupsResponse as any).items || []);
-          // Auto-select first group if none selected
-          if (!selectedGroupId && (groupsResponse as any).items?.length > 0) {
-            setSelectedGroupId((groupsResponse as any).items[0].id);
+        if (isGroupContext) {
+          // In group context, only load group shells if a group is selected
+          if (selectedGroupId) {
+            const shellsResponse = await groupsApi.getGroupUnifiedShells(selectedGroupId);
+            setShells(shellsResponse.data || []);
+          } else {
+            // No group selected yet, clear shells
+            setShells([]);
           }
         } else {
+          // In personal context, load personal shells
           const shellsResponse = await shellApis.getUnifiedShells();
           setShells(shellsResponse.data || []);
         }
       } catch (error) {
-        console.error('Failed to fetch data:', error);
+        console.error('Failed to fetch shells:', error);
       }
     };
-    fetchData();
-  }, [groups, selectedGroupId, isGroupContext]);
+    fetchShells();
+  }, [selectedGroupId, isGroupContext]);
 
   // Filter bots based on current mode, using shells to resolve custom shell runtime types
   const filteredBots = useMemo(() => {
@@ -156,7 +174,7 @@ export default function TeamEdit(props: TeamEditProps) {
 
   const teamPromptMap = useMemo(() => {
     const map = new Map<number, boolean>();
-    if (editingTeam) {
+    if (editingTeam && editingTeam.bots) {
       editingTeam.bots.forEach(bot => {
         map.set(bot.bot_id, !!bot.bot_prompt?.trim());
       });
@@ -202,7 +220,7 @@ export default function TeamEdit(props: TeamEditProps) {
   }, [editingBotDrawerVisible]);
 
   useEffect(() => {
-    if (editingTeamId === 0 && initialTeam) {
+    if (editingTeamId === 0 && initialTeam && initialTeam.bots) {
       setUnsavedPrompts(prev => {
         if (Object.keys(prev).length > 0) {
           return prev;
@@ -247,9 +265,9 @@ export default function TeamEdit(props: TeamEditProps) {
       setName(formTeam.name);
       const m = (formTeam.workflow?.mode as TeamMode) || 'pipeline';
       setMode(m);
-      const ids = formTeam.bots.map(b => String(b.bot_id));
+      const ids = formTeam.bots ? formTeam.bots.map(b => String(b.bot_id)) : [];
       setSelectedBotKeys(ids);
-      const leaderBot = formTeam.bots.find(b => b.role === 'leader');
+      const leaderBot = formTeam.bots ? formTeam.bots.find(b => b.role === 'leader') : null;
       setLeaderBotId(leaderBot?.bot_id ?? null);
     } else {
       setName('');
@@ -261,7 +279,7 @@ export default function TeamEdit(props: TeamEditProps) {
 
   // When bots change, only update bots-related state, do not reset name and mode
   useEffect(() => {
-    if (formTeam) {
+    if (formTeam && formTeam.bots) {
       // Filter by both available bots and mode-compatible bots
       const ids = formTeam.bots
         .filter(b => filteredBots.some((bot: Bot) => bot.id === b.bot_id))
@@ -280,7 +298,7 @@ export default function TeamEdit(props: TeamEditProps) {
       value => (value ?? '').trim().length > 0
     );
     const hasExistingPrompts =
-      formTeam?.bots.some(bot => bot.bot_prompt && bot.bot_prompt.trim().length > 0) ?? false;
+      formTeam?.bots?.some(bot => bot.bot_prompt && bot.bot_prompt.trim().length > 0) ?? false;
 
     return hasSelectedBots || hasUnsavedPrompts || hasExistingPrompts;
   }, [selectedBotKeys, leaderBotId, unsavedPrompts, formTeam]);
@@ -430,10 +448,16 @@ export default function TeamEdit(props: TeamEditProps) {
             });
             setTeams(prev => prev.map(team => (team.id === updated.id ? updated : team)));
           } else {
+            // Get group name for namespace
+            const groupName = selectedGroupId && loadedGroups.length > 0
+              ? loadedGroups.find(g => g.id === selectedGroupId)?.name
+              : undefined;
+            
             const created = await createTeam({
               name: name.trim(),
               workflow,
               bots: botsData,
+              namespace: groupName,
             });
             setTeams(prev => [created, ...prev]);
           }
@@ -492,7 +516,7 @@ export default function TeamEdit(props: TeamEditProps) {
     // Create botsData, keep allBotIds order, retain original bot_prompt or use unsaved prompts
     const botsData = allBotIds.map(id => {
       // If editing existing team, keep bot_prompt if bot_id exists
-      const existingBot = formTeam?.bots.find(b => b.bot_id === id);
+      const existingBot = formTeam?.bots?.find(b => b.bot_id === id);
       // Check for unsaved prompt
       const unsavedPrompt = unsavedPrompts[`prompt-${id}`];
 
@@ -515,10 +539,16 @@ export default function TeamEdit(props: TeamEditProps) {
         });
         setTeams(prev => prev.map(team => (team.id === updated.id ? updated : team)));
       } else {
+        // Get group name for namespace
+        const groupName = selectedGroupId && loadedGroups.length > 0
+          ? loadedGroups.find(g => g.id === selectedGroupId)?.name
+          : undefined;
+        
         const created = await createTeam({
           name: name.trim(),
           workflow,
           bots: botsData,
+          namespace: groupName,
         });
         setTeams(prev => [created, ...prev]);
       }
@@ -712,6 +742,7 @@ export default function TeamEdit(props: TeamEditProps) {
               allowedAgents={allowedAgentsForMode}
               editingTeamId={editingTeamId}
               botEditRef={botEditRef}
+              groupId={selectedGroupId}
             />
           )}
 
@@ -777,6 +808,7 @@ export default function TeamEdit(props: TeamEditProps) {
         unsavedPrompts={unsavedPrompts}
         setUnsavedPrompts={setUnsavedPrompts}
         allowedAgents={allowedAgentsForMode}
+        groupId={groupId}
       />
 
       {/* Mode change confirmation dialog */}

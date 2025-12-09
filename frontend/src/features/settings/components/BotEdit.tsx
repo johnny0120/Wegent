@@ -9,6 +9,7 @@ import React, {
   useMemo,
   useImperativeHandle,
   forwardRef,
+  useRef,
 } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -304,11 +305,12 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
       setLoadingShells(true);
       try {
         let response;
-        // Use group shells API if groupId is provided
-        if (groupId) {
+        // Use group shells API if groupId is provided (not undefined and not null)
+        if (groupId !== undefined && groupId !== null) {
           const { groupsApi } = await import('@/apis/groups');
           response = await groupsApi.getGroupUnifiedShells(groupId);
         } else {
+          // groupId is undefined or null means we're in personal context
           response = await shellApis.getUnifiedShells();
         }
         // Filter shells based on allowedAgents prop (using shellType as agent type)
@@ -360,14 +362,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
 
   // Fetch corresponding model list when agentName changes
   useEffect(() => {
-    console.log('[DEBUG] fetchModels useEffect triggered', {
-      agentName,
-      baseBot_shell_name: baseBot?.shell_name,
-      baseBot_shell_type: baseBot?.shell_type,
-      baseBot_agent_config: baseBot?.agent_config,
-      shells_length: shells.length,
-    });
-
     if (!agentName) {
       setModels([]);
       return;
@@ -375,7 +369,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
 
     // Wait for shells to be loaded before fetching models
     if (shells.length === 0) {
-      console.log('[DEBUG] Waiting for shells to load...');
       return;
     }
 
@@ -387,8 +380,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
         // Use shell's shellType for model filtering, fallback to agentName for public shells
         const shellType = selectedShell?.shellType || agentName;
 
-        console.log('[DEBUG] Fetching models for shellType:', shellType);
-
         // Use group models API if groupId is provided
         let response;
         if (groupId) {
@@ -397,7 +388,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
         } else {
           response = await modelApis.getUnifiedModels(shellType);
         }
-        console.log('[DEBUG] Models loaded:', response.data);
         setModels(response.data);
 
         // After loading models, check if we should restore the bot's saved model
@@ -410,19 +400,9 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
         const agentMatches = baseBotShellName === agentName;
         const isPredefined = hasConfig && isPredefinedModel(baseBot.agent_config);
 
-        console.log('[DEBUG] Model restore check:', {
-          hasConfig,
-          agentMatches,
-          isPredefined,
-          baseBotShellName,
-          agentName,
-          agent_config: baseBot?.agent_config,
-        });
-
         if (hasConfig && agentMatches && isPredefined) {
           const savedModelName = getModelFromConfig(baseBot.agent_config);
           const savedModelType = getModelTypeFromConfig(baseBot.agent_config);
-          console.log('[DEBUG] Saved model name:', savedModelName, 'type:', savedModelType);
           // Only set the model if it exists in the loaded models list
           // Match by both name and type if type is specified
           const foundModel = response.data.find((m: UnifiedModel) => {
@@ -432,16 +412,9 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
             return m.name === savedModelName;
           });
           if (savedModelName && foundModel) {
-            console.log(
-              '[DEBUG] Setting selectedModel to:',
-              savedModelName,
-              'type:',
-              foundModel.type
-            );
             setSelectedModel(savedModelName);
             setSelectedModelType(foundModel.type);
           } else {
-            console.log('[DEBUG] Model not found in list, clearing selection');
             // Model not found in list, clear selection
             setSelectedModel('');
             setSelectedModelType(undefined);
@@ -689,14 +662,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
 
   // Save logic
   const handleSave = async () => {
-    console.log('[DEBUG] handleSave called', {
-      botName,
-      agentName,
-      isCustomModel,
-      selectedModel,
-      agentConfig,
-    });
-
     if (!botName.trim() || !agentName.trim()) {
       toast({
         variant: 'destructive',
@@ -779,8 +744,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
       parsedAgentConfig = createPredefinedModelConfig(selectedModel, selectedModelType);
     }
 
-    console.log('[DEBUG] parsedAgentConfig:', parsedAgentConfig);
-
     let parsedMcpConfig: Record<string, unknown> | null = null;
 
     // Skip MCP config for Dify agent
@@ -818,7 +781,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
         mcp_servers: parsedMcpConfig ?? {},
         skills: selectedSkills.length > 0 ? selectedSkills : [],
       };
-      console.log('[DEBUG] Saving bot request:', JSON.stringify(botReq, null, 2));
 
       if (editingBotId && editingBotId > 0) {
         // Edit existing bot
@@ -831,7 +793,6 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
         } else {
           updated = await botApis.updateBot(editingBotId, botReq as UpdateBotRequest);
         }
-        console.log('[DEBUG] Bot updated response:', JSON.stringify(updated, null, 2));
         setBots(prev => prev.map(b => (b.id === editingBotId ? updated : b)));
       } else {
         // Create new bot
@@ -844,12 +805,10 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
         } else {
           created = await botApis.createBot(botReq);
         }
-        console.log('[DEBUG] Bot created response:', JSON.stringify(created, null, 2));
         setBots(prev => [created, ...prev]);
       }
       onClose();
     } catch (error) {
-      console.error('[DEBUG] Save error:', error);
       toast({
         variant: 'destructive',
         title: (error as Error)?.message || t('bot.errors.save_failed'),
@@ -1002,6 +961,11 @@ const BotEditInner: React.ForwardRefRenderFunction<BotEditRef, BotEditProps> = (
                     {shell.type === 'user' && (
                       <span className="ml-1 text-xs text-text-muted">
                         [{t('bot.custom_shell', '自定义')}]
+                      </span>
+                    )}
+                    {shell.type === 'group' && (
+                      <span className="ml-1 text-xs text-text-muted">
+                        [{t('bot.group_shell', '群组')}]
                       </span>
                     )}
                   </SelectItem>
