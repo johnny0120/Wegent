@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { modelApis, ModelCRD, UnifiedModel } from '@/apis/models';
 import { groupsApi } from '@/apis/groups';
+import { apiClient } from '@/apis/client';
 import UnifiedAddButton from '@/components/common/UnifiedAddButton';
 
 interface GroupModelListProps {
@@ -107,11 +108,21 @@ const GroupModelList: React.FC<GroupModelListProps> = ({ groupId }) => {
 
   const fetchModels = useCallback(async () => {
     if (!selectedGroupId) return;
-    
+
     setLoading(true);
     try {
-      // Use group-specific unified API to get models available to this group
-      const unifiedResponse = await groupsApi.getGroupUnifiedModels(selectedGroupId, undefined, true); // include_config=true for full details
+      // Get group name from groups list
+      const selectedGroup = groups.find(group => group.id === selectedGroupId);
+      if (!selectedGroup) {
+        throw new Error('Selected group not found');
+      }
+
+      // Use unified models API with group scope parameter
+      const unifiedResponse = await modelApis.getUnifiedModels(
+        undefined, // shellType
+        true,      // includeConfig
+        `group:${selectedGroup.name}` // scope parameter
+      );
       setUnifiedModels(unifiedResponse.data || []);
     } catch (error) {
       console.error('Failed to fetch group models:', error);
@@ -122,7 +133,7 @@ const GroupModelList: React.FC<GroupModelListProps> = ({ groupId }) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedGroupId, toast, t]);
+  }, [selectedGroupId, groups, toast, t]);
 
   useEffect(() => {
     fetchGroups();
@@ -249,14 +260,21 @@ const GroupModelList: React.FC<GroupModelListProps> = ({ groupId }) => {
     if (!deleteConfirmModel || !selectedGroupId) return;
 
     try {
+      // Get group name from groups list
+      const selectedGroup = groups.find(group => group.id === selectedGroupId);
+      if (!selectedGroup) {
+        throw new Error('Selected group not found');
+      }
+
       if (deleteConfirmModel.isGroup) {
-        // Use group-specific delete API for group models
-        await groupsApi.deleteGroupModel(selectedGroupId, deleteConfirmModel.name);
-      } else {
-        // Use regular delete API for personal models (though this shouldn't happen in group context)
+        // Delete group model using Kubernetes-style API with group namespace
+        await apiClient.delete(`/v1/namespaces/${encodeURIComponent(selectedGroup.name)}/models/${encodeURIComponent(deleteConfirmModel.name)}`);
+      } else if (!deleteConfirmModel.isPublic) {
+        // Delete personal model (shouldn't happen in group context, but handle it)
         await modelApis.deleteModel(deleteConfirmModel.name);
       }
-      
+      // Public models cannot be deleted
+
       toast({
         title: t('models.delete_success'),
       });
