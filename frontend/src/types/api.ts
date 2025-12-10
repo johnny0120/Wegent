@@ -463,6 +463,7 @@ export interface ChatTipItem {
   id: number;
   zh: string;
   en: string;
+  mode?: 'chat' | 'code' | 'both';
 }
 
 export interface WelcomeConfigResponse {

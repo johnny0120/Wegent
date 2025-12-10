@@ -5,11 +5,11 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Send, CircleStop, Upload, Globe } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Send, CircleStop, Upload } from 'lucide-react';
 import MessagesArea from './MessagesArea';
 import ChatInput from './ChatInput';
 import TeamSelector from './TeamSelector';
+import SearchEngineSelector from './SearchEngineSelector';
 import ModelSelector, {
   Model,
   DEFAULT_MODEL_NAME,
@@ -21,8 +21,9 @@ import LoadingDots from './LoadingDots';
 import ExternalApiParamsInput from './ExternalApiParamsInput';
 import FileUpload from './FileUpload';
 import { QuickAccessCards } from './QuickAccessCards';
-import { WelcomeMessage } from './WelcomeMessage';
-import type { Team, GitRepoInfo, GitBranch, Attachment } from '@/types/api';
+import type { Team, GitRepoInfo, GitBranch, Attachment, ChatTipItem } from '@/types/api';
+import type { WelcomeConfigResponse } from '@/types/api';
+import { userApis } from '@/apis/user';
 import { sendMessage, isChatShell } from '../service/messageService';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTaskContext } from '../contexts/taskContext';
@@ -34,7 +35,7 @@ import { saveLastTeamByMode, getLastTeamIdByMode, saveLastRepo } from '@/utils/u
 import { useToast } from '@/hooks/use-toast';
 import { taskApis } from '@/apis/tasks';
 import { useAttachment } from '@/hooks/useAttachment';
-import { useTranslation } from '@/hooks/useTranslation';
+import { chatApis, SearchEngine } from '@/apis/chat';
 
 const SHOULD_HIDE_QUOTA_NAME_LIMIT = 18;
 // Threshold for combined team name + model name length to trigger compact quota mode
@@ -58,7 +59,6 @@ export default function ChatArea({
   onShareButtonRender,
 }: ChatAreaProps) {
   const { toast } = useToast();
-  const { t } = useTranslation('chat');
 
   // Pre-load team preference from localStorage to use as initial value
   const initialTeamIdRef = useRef<number | null>(null);
@@ -99,9 +99,90 @@ export default function ChatArea({
 
   // Web search toggle state
   const [enableWebSearch, setEnableWebSearch] = useState(false);
+  const [selectedSearchEngine, setSelectedSearchEngine] = useState<string | null>(null);
+  const [isWebSearchFeatureEnabled, setIsWebSearchFeatureEnabled] = useState(false);
+  const [searchEngines, setSearchEngines] = useState<SearchEngine[]>([]);
 
-  // Check if web search is enabled via environment variable
-  const isWebSearchEnabled = process.env.NEXT_PUBLIC_WEB_SEARCH_ENABLED === 'true';
+  // Welcome config state for dynamic placeholder
+  const [welcomeConfig, setWelcomeConfig] = useState<WelcomeConfigResponse | null>(null);
+  // Load search engine preference from localStorage and fetch available engines
+  useEffect(() => {
+    const fetchSearchEngines = async () => {
+      try {
+        const response = await chatApis.getSearchEngines();
+        setIsWebSearchFeatureEnabled(response.enabled);
+        setSearchEngines(response.engines);
+
+        // Validate and restore saved search engine preference inside the fetch callback
+        // to ensure we validate against the latest available engines
+        if (typeof window !== 'undefined') {
+          const savedEngine = localStorage.getItem('last_search_engine');
+          if (savedEngine && response.engines.some(e => e.name === savedEngine)) {
+            setSelectedSearchEngine(savedEngine);
+          } else {
+            // Saved engine no longer exists or is invalid, clear it
+            localStorage.removeItem('last_search_engine');
+            // Default to the first engine if available
+            if (response.engines.length > 0) {
+              setSelectedSearchEngine(response.engines[0].name);
+            } else {
+              setSelectedSearchEngine(null);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch search engines:', error);
+        setIsWebSearchFeatureEnabled(false);
+        setSearchEngines([]);
+        toast({
+          variant: 'destructive',
+          title: 'Failed to load search engines',
+          description: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    };
+
+    fetchSearchEngines();
+  }, [toast]);
+
+  // Fetch welcome config for dynamic placeholder
+  useEffect(() => {
+    const fetchWelcomeConfig = async () => {
+      try {
+        const response = await userApis.getWelcomeConfig();
+        setWelcomeConfig(response);
+      } catch (error) {
+        console.error('Failed to fetch welcome config:', error);
+      }
+    };
+
+    fetchWelcomeConfig();
+  }, []);
+
+  // Get random tip for placeholder - memoized to prevent re-randomization on re-renders
+  // Filter tips by taskType: show tips that match the current mode or are for 'both' modes
+  const randomTip = useMemo<ChatTipItem | null>(() => {
+    if (!welcomeConfig?.tips || welcomeConfig.tips.length === 0) {
+      return null;
+    }
+    // Filter tips by mode: include tips that match current taskType or are for 'both'
+    const filteredTips = welcomeConfig.tips.filter(tip => {
+      const tipMode = tip.mode || 'both'; // Default to 'both' if mode is not specified
+      return tipMode === taskType || tipMode === 'both';
+    });
+
+    if (filteredTips.length === 0) {
+      return null;
+    }
+
+    const randomIndex = Math.floor(Math.random() * filteredTips.length);
+    return filteredTips[randomIndex];
+  }, [welcomeConfig?.tips, taskType]);
+
+  const handleSearchEngineChange = useCallback((engine: string) => {
+    setSelectedSearchEngine(engine);
+    localStorage.setItem('last_search_engine', engine);
+  }, []);
 
   // External API parameters state
   const [externalApiParams, setExternalApiParams] = useState<Record<string, string>>({});
@@ -545,6 +626,7 @@ export default function ChatArea({
             force_override_bot_model: forceOverride,
             attachment_id: attachmentState.attachment?.id,
             enable_web_search: enableWebSearch,
+            search_engine: selectedSearchEngine || undefined,
           },
           {
             pendingUserMessage: message,
@@ -895,7 +977,7 @@ export default function ChatArea({
       style={{ height: '100%', boxSizing: 'border-box' }}
     >
       {/* Messages Area: always mounted to keep scroll container stable */}
-      <div className="relative flex-1 min-h-0">
+      <div className={hasMessages ? 'relative flex-1 min-h-0' : 'relative'}>
         {/* Top gradient fade effect - only show when has messages */}
         {hasMessages && (
           <div
@@ -937,13 +1019,13 @@ export default function ChatArea({
       <div className={hasMessages ? 'w-full' : 'flex-1 flex flex-col w-full'}>
         {/* Center area for input when no messages */}
         {!hasMessages && (
-          <div className="flex-1 flex items-center justify-center w-full">
+          <div
+            className="flex-1 flex items-center justify-center w-full"
+            style={{ marginBottom: '20vh' }}
+          >
             {/* Floating Input Area */}
             <div ref={floatingInputRef} className="w-full max-w-4xl mx-auto px-4 sm:px-6">
               <div className="w-full">
-                {/* Welcome Message - show above input when no messages */}
-                <WelcomeMessage />
-
                 {/* External API Parameters Input - only show for Dify teams */}
                 {selectedTeam && selectedTeam.agent_type === 'dify' && (
                   <ExternalApiParamsInput
@@ -1000,6 +1082,7 @@ export default function ChatArea({
                       isLoading={isLoading}
                       taskType={taskType}
                       autoFocus={!hasMessages}
+                      tipText={randomTip}
                     />
                   )}
                   {/* Team Selector and Send Button - always show */}
@@ -1025,30 +1108,15 @@ export default function ChatArea({
                           />
                         )}
                       {/* Web Search Toggle Button - only show for chat shell and when enabled */}
-                      {isWebSearchEnabled && isChatShell(selectedTeam) && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setEnableWebSearch(!enableWebSearch)}
-                                className={`h-8 w-8 rounded-lg flex-shrink-0 transition-colors ${
-                                  enableWebSearch
-                                    ? 'bg-primary/10 text-primary hover:bg-primary/20'
-                                    : 'text-text-muted hover:bg-surface hover:text-text-primary'
-                                }`}
-                              >
-                                <Globe className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              <p>
-                                {enableWebSearch ? t('web_search.disable') : t('web_search.enable')}
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
+                      {isWebSearchFeatureEnabled && isChatShell(selectedTeam) && (
+                        <SearchEngineSelector
+                          enabled={enableWebSearch}
+                          onToggle={setEnableWebSearch}
+                          selectedEngine={selectedSearchEngine}
+                          onSelectEngine={handleSearchEngineChange}
+                          disabled={isLoading || isStreaming}
+                          engines={searchEngines}
+                        />
                       )}
                       {teams.length > 0 && (
                         <TeamSelector
@@ -1252,6 +1320,7 @@ export default function ChatArea({
                     handleSendMessage={handleSendMessage}
                     isLoading={isLoading}
                     taskType={taskType}
+                    tipText={randomTip}
                   />
                 )}
                 {/* Team Selector and Send Button - always show */}
@@ -1274,30 +1343,15 @@ export default function ChatArea({
                         />
                       )}
                     {/* Web Search Toggle Button - only show for chat shell and when enabled */}
-                    {isWebSearchEnabled && isChatShell(selectedTeam) && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setEnableWebSearch(!enableWebSearch)}
-                              className={`h-8 w-8 rounded-lg flex-shrink-0 transition-colors ${
-                                enableWebSearch
-                                  ? 'bg-primary/10 text-primary hover:bg-primary/20'
-                                  : 'text-text-muted hover:bg-surface hover:text-text-primary'
-                              }`}
-                            >
-                              <Globe className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">
-                            <p>
-                              {enableWebSearch ? t('web_search.disable') : t('web_search.enable')}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                    {isWebSearchFeatureEnabled && isChatShell(selectedTeam) && (
+                      <SearchEngineSelector
+                        enabled={enableWebSearch}
+                        onToggle={setEnableWebSearch}
+                        selectedEngine={selectedSearchEngine}
+                        onSelectEngine={handleSearchEngineChange}
+                        disabled={isLoading || isStreaming}
+                        engines={searchEngines}
+                      />
                     )}
                     {teams.length > 0 && (
                       <TeamSelector

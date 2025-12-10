@@ -12,7 +12,13 @@ from app.api.dependencies import get_db
 from app.core import security
 from app.models.system_config import SystemConfig
 from app.models.user import User
-from app.schemas.admin import QuickAccessResponse, QuickAccessTeam, WelcomeConfigResponse, ChatSloganConfig, ChatTipItem
+from app.schemas.admin import (
+    ChatSloganConfig,
+    ChatTipItem,
+    QuickAccessResponse,
+    QuickAccessTeam,
+    WelcomeConfigResponse,
+)
 from app.schemas.user import UserCreate, UserInDB, UserUpdate
 from app.services.kind import kind_service
 from app.services.user import user_service
@@ -190,30 +196,56 @@ DEFAULT_SLOGAN_TIPS_CONFIG = {
         "en": "Welcome to Wegent, let AI be your intelligent assistant",
     },
     "tips": [
+        # Chat mode tips
         {
             "id": 1,
-            "zh": "试试问我：帮我分析这段代码的性能问题",
-            "en": "Try asking: Help me analyze the performance issues in this code",
+            "zh": "试试问我任何问题，我会尽力帮助你",
+            "en": "Try asking me any question, I'll do my best to help",
+            "mode": "chat",
         },
         {
             "id": 2,
-            "zh": "你可以上传文件让我帮你处理",
-            "en": "You can upload files for me to help you process",
+            "zh": "你可以上传文件让我帮你分析和处理",
+            "en": "You can upload files for me to analyze and process",
+            "mode": "chat",
         },
         {
             "id": 3,
-            "zh": "我可以帮你生成代码、修复 Bug 或重构现有代码",
-            "en": "I can help you generate code, fix bugs, or refactor existing code",
+            "zh": "我可以帮你总结文档、翻译内容或回答问题",
+            "en": "I can help you summarize documents, translate content, or answer questions",
+            "mode": "chat",
         },
+        # Code mode tips
         {
             "id": 4,
-            "zh": "试试让我帮你编写单元测试或文档",
-            "en": "Try asking me to write unit tests or documentation",
+            "zh": "试试问我：帮我分析这段代码的性能问题",
+            "en": "Try asking: Help me analyze the performance issues in this code",
+            "mode": "code",
         },
         {
             "id": 5,
+            "zh": "我可以帮你生成代码、修复 Bug 或重构现有代码",
+            "en": "I can help you generate code, fix bugs, or refactor existing code",
+            "mode": "code",
+        },
+        {
+            "id": 6,
+            "zh": "试试让我帮你编写单元测试或文档",
+            "en": "Try asking me to write unit tests or documentation",
+            "mode": "code",
+        },
+        {
+            "id": 7,
             "zh": "我可以解释复杂的代码逻辑，帮助你理解代码库",
             "en": "I can explain complex code logic and help you understand the codebase",
+            "mode": "code",
+        },
+        # Both modes tips
+        {
+            "id": 8,
+            "zh": "选择合适的智能体团队可以获得更好的回答",
+            "en": "Choosing the right agent team can get you better answers",
+            "mode": "both",
         },
     ],
 }
@@ -243,6 +275,11 @@ async def get_welcome_config(
 
     config_value = config.config_value or {}
     return WelcomeConfigResponse(
-        slogan=ChatSloganConfig(**config_value.get("slogan", DEFAULT_SLOGAN_TIPS_CONFIG["slogan"])),
-        tips=[ChatTipItem(**tip) for tip in config_value.get("tips", DEFAULT_SLOGAN_TIPS_CONFIG["tips"])],
+        slogan=ChatSloganConfig(
+            **config_value.get("slogan", DEFAULT_SLOGAN_TIPS_CONFIG["slogan"])
+        ),
+        tips=[
+            ChatTipItem(**tip)
+            for tip in config_value.get("tips", DEFAULT_SLOGAN_TIPS_CONFIG["tips"])
+        ],
     )

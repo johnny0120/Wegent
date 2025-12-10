@@ -28,6 +28,10 @@ from app.schemas.admin import (
     AdminUserListResponse,
     AdminUserResponse,
     AdminUserUpdate,
+    ChatSloganConfig,
+    ChatSloganTipsResponse,
+    ChatSloganTipsUpdate,
+    ChatTipItem,
     PasswordReset,
     PublicModelCreate,
     PublicModelListResponse,
@@ -39,10 +43,6 @@ from app.schemas.admin import (
     SystemConfigResponse,
     SystemConfigUpdate,
     SystemStats,
-    ChatSloganConfig,
-    ChatSloganTipsResponse,
-    ChatSloganTipsUpdate,
-    ChatTipItem,
 )
 from app.schemas.kind import BatchResponse
 from app.schemas.task import TaskCreate, TaskInDB
@@ -1094,7 +1094,9 @@ async def get_slogan_tips_config(
     config_value = config.config_value or {}
     return ChatSloganTipsResponse(
         version=config.version,
-        slogan=ChatSloganConfig(**config_value.get("slogan", DEFAULT_SLOGAN_TIPS_CONFIG["slogan"])),
+        slogan=ChatSloganConfig(
+            **config_value.get("slogan", DEFAULT_SLOGAN_TIPS_CONFIG["slogan"])
+        ),
         tips=[ChatTipItem(**tip) for tip in config_value.get("tips", [])],
     )
 

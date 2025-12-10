@@ -37,7 +37,15 @@ import {
   ChatSloganConfig,
   ChatTipItem,
   ChatSloganTipsResponse,
+  TipMode,
 } from '@/apis/admin';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const SystemConfigPanel: React.FC = () => {
   const { t } = useTranslation('admin');
@@ -55,7 +63,11 @@ const SystemConfigPanel: React.FC = () => {
   const [isDeleteTipDialogOpen, setIsDeleteTipDialogOpen] = useState(false);
   const [editingTip, setEditingTip] = useState<ChatTipItem | null>(null);
   const [editingTipIndex, setEditingTipIndex] = useState<number>(-1);
-  const [tipFormData, setTipFormData] = useState<Omit<ChatTipItem, 'id'>>({ zh: '', en: '' });
+  const [tipFormData, setTipFormData] = useState<Omit<ChatTipItem, 'id'>>({
+    zh: '',
+    en: '',
+    mode: 'both',
+  });
 
   // Fetch config
   const fetchConfig = useCallback(async () => {
@@ -104,10 +116,11 @@ const SystemConfigPanel: React.FC = () => {
   };
 
   // Add new tip
+  // Add new tip
   const handleAddTip = () => {
     setEditingTip(null);
     setEditingTipIndex(-1);
-    setTipFormData({ zh: '', en: '' });
+    setTipFormData({ zh: '', en: '', mode: 'both' });
     setIsEditTipDialogOpen(true);
   };
 
@@ -115,10 +128,9 @@ const SystemConfigPanel: React.FC = () => {
   const handleEditTip = (tip: ChatTipItem, index: number) => {
     setEditingTip(tip);
     setEditingTipIndex(index);
-    setTipFormData({ zh: tip.zh, en: tip.en });
+    setTipFormData({ zh: tip.zh, en: tip.en, mode: tip.mode || 'both' });
     setIsEditTipDialogOpen(true);
   };
-
   // Save tip (add or edit)
   const handleSaveTip = () => {
     if (!tipFormData.zh.trim() || !tipFormData.en.trim()) {
@@ -136,12 +148,16 @@ const SystemConfigPanel: React.FC = () => {
         ...editingTip,
         zh: tipFormData.zh,
         en: tipFormData.en,
+        mode: tipFormData.mode,
       };
       setTips(newTips);
     } else {
       // Add new tip
-      const newId = tips.length > 0 ? Math.max(...tips.map((t) => t.id)) + 1 : 1;
-      setTips([...tips, { id: newId, zh: tipFormData.zh, en: tipFormData.en }]);
+      const newId = tips.length > 0 ? Math.max(...tips.map(t => t.id)) + 1 : 1;
+      setTips([
+        ...tips,
+        { id: newId, zh: tipFormData.zh, en: tipFormData.en, mode: tipFormData.mode },
+      ]);
     }
 
     setIsEditTipDialogOpen(false);
@@ -192,14 +208,16 @@ const SystemConfigPanel: React.FC = () => {
 
       {/* Slogan Configuration */}
       <Card className="p-6">
-        <h3 className="text-md font-medium text-text-primary mb-4">{t('system_config.slogan_title')}</h3>
+        <h3 className="text-md font-medium text-text-primary mb-4">
+          {t('system_config.slogan_title')}
+        </h3>
         <div className="space-y-4">
           <div>
             <Label htmlFor="slogan-zh">{t('system_config.slogan_zh')}</Label>
             <Input
               id="slogan-zh"
               value={slogan.zh}
-              onChange={(e) => setSlogan({ ...slogan, zh: e.target.value })}
+              onChange={e => setSlogan({ ...slogan, zh: e.target.value })}
               placeholder={t('system_config.slogan_zh_placeholder')}
               className="mt-1"
             />
@@ -209,7 +227,7 @@ const SystemConfigPanel: React.FC = () => {
             <Input
               id="slogan-en"
               value={slogan.en}
-              onChange={(e) => setSlogan({ ...slogan, en: e.target.value })}
+              onChange={e => setSlogan({ ...slogan, en: e.target.value })}
               placeholder={t('system_config.slogan_en_placeholder')}
               className="mt-1"
             />
@@ -228,9 +246,7 @@ const SystemConfigPanel: React.FC = () => {
         </div>
 
         {tips.length === 0 ? (
-          <div className="text-center py-8 text-text-muted">
-            {t('system_config.no_tips')}
-          </div>
+          <div className="text-center py-8 text-text-muted">{t('system_config.no_tips')}</div>
         ) : (
           <div className="space-y-3">
             {tips.map((tip, index) => (
@@ -239,7 +255,12 @@ const SystemConfigPanel: React.FC = () => {
                 className="flex items-start gap-3 p-3 rounded-lg bg-surface border border-border"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-text-primary truncate">{tip.zh}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-text-primary truncate flex-1">{tip.zh}</p>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0">
+                      {t(`system_config.tip_mode_${tip.mode || 'both'}`)}
+                    </span>
+                  </div>
                   <p className="text-xs text-text-muted truncate mt-1">{tip.en}</p>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
@@ -278,9 +299,7 @@ const SystemConfigPanel: React.FC = () => {
             <DialogTitle>
               {editingTip ? t('system_config.edit_tip') : t('system_config.add_tip')}
             </DialogTitle>
-            <DialogDescription>
-              {t('system_config.tip_dialog_description')}
-            </DialogDescription>
+            <DialogDescription>{t('system_config.tip_dialog_description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
@@ -288,7 +307,7 @@ const SystemConfigPanel: React.FC = () => {
               <Textarea
                 id="tip-zh"
                 value={tipFormData.zh}
-                onChange={(e) => setTipFormData({ ...tipFormData, zh: e.target.value })}
+                onChange={e => setTipFormData({ ...tipFormData, zh: e.target.value })}
                 placeholder={t('system_config.tip_zh_placeholder')}
                 className="mt-1"
                 rows={2}
@@ -299,20 +318,34 @@ const SystemConfigPanel: React.FC = () => {
               <Textarea
                 id="tip-en"
                 value={tipFormData.en}
-                onChange={(e) => setTipFormData({ ...tipFormData, en: e.target.value })}
+                onChange={e => setTipFormData({ ...tipFormData, en: e.target.value })}
                 placeholder={t('system_config.tip_en_placeholder')}
                 className="mt-1"
                 rows={2}
               />
+            </div>
+            <div>
+              <Label htmlFor="tip-mode">{t('system_config.tip_mode')}</Label>
+              <Select
+                value={tipFormData.mode || 'both'}
+                onValueChange={(value: TipMode) => setTipFormData({ ...tipFormData, mode: value })}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={t('system_config.tip_mode')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="chat">{t('system_config.tip_mode_chat')}</SelectItem>
+                  <SelectItem value="code">{t('system_config.tip_mode_code')}</SelectItem>
+                  <SelectItem value="both">{t('system_config.tip_mode_both')}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditTipDialogOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleSaveTip}>
-              {t('common.save')}
-            </Button>
+            <Button onClick={handleSaveTip}>{t('common.save')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -322,9 +355,7 @@ const SystemConfigPanel: React.FC = () => {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('system_config.delete_tip_title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('system_config.delete_tip_message')}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t('system_config.delete_tip_message')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>

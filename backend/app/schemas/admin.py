@@ -175,6 +175,10 @@ class ChatTipItem(BaseModel):
     id: int = Field(..., description="Unique tip ID")
     zh: str = Field(..., description="Chinese tip text")
     en: str = Field(..., description="English tip text")
+    mode: Optional[Literal["chat", "code", "both"]] = Field(
+        default="both",
+        description="Which mode this tip applies to: chat, code, or both",
+    )
 
 
 class ChatTipsConfig(BaseModel):

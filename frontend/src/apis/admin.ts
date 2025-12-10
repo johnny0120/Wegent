@@ -91,10 +91,13 @@ export interface ChatSloganConfig {
   en: string;
 }
 
+export type TipMode = 'chat' | 'code' | 'both';
+
 export interface ChatTipItem {
   id: number;
   zh: string;
   en: string;
+  mode?: TipMode;
 }
 
 export interface ChatSloganTipsUpdate {
