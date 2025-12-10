@@ -453,6 +453,23 @@ export interface QuickAccessResponse {
   teams: QuickAccessTeam[];
 }
 
+// Welcome Config Types (Slogan & Tips)
+export interface ChatSloganConfig {
+  zh: string;
+  en: string;
+}
+
+export interface ChatTipItem {
+  id: number;
+  zh: string;
+  en: string;
+}
+
+export interface WelcomeConfigResponse {
+  slogan: ChatSloganConfig;
+  tips: ChatTipItem[];
+}
+
 export interface SystemConfigResponse {
   version: number;
   teams: number[];

@@ -21,6 +21,7 @@ import LoadingDots from './LoadingDots';
 import ExternalApiParamsInput from './ExternalApiParamsInput';
 import FileUpload from './FileUpload';
 import { QuickAccessCards } from './QuickAccessCards';
+import { WelcomeMessage } from './WelcomeMessage';
 import type { Team, GitRepoInfo, GitBranch, Attachment } from '@/types/api';
 import { sendMessage, isChatShell } from '../service/messageService';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -940,6 +941,9 @@ export default function ChatArea({
             {/* Floating Input Area */}
             <div ref={floatingInputRef} className="w-full max-w-4xl mx-auto px-4 sm:px-6">
               <div className="w-full">
+                {/* Welcome Message - show above input when no messages */}
+                <WelcomeMessage />
+
                 {/* External API Parameters Input - only show for Dify teams */}
                 {selectedTeam && selectedTeam.agent_type === 'dify' && (
                   <ExternalApiParamsInput
