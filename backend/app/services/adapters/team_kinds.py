@@ -348,6 +348,131 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             users = db.query(User).filter(User.id.in_(user_ids)).all()
             users_info = {user.id: user for user in users}
 
+        # ===== PERFORMANCE OPTIMIZATION: Batch load all related data =====
+        # 1. Collect all bot references from all teams
+        all_bot_refs = []  # (name, namespace, user_id)
+        context_user_ids = set()
+        for team_data in teams_data:
+            context_user_ids.add(team_data.context_user_id)
+            team_crd = Team.model_validate(team_data.team_json)
+            for member in team_crd.spec.members:
+                all_bot_refs.append(
+                    (member.botRef.name, member.botRef.namespace, team_data.context_user_id)
+                )
+
+        # 2. Batch query all bots (group by user_id for proper filtering)
+        bots_dict = {}  # Key: (name, namespace, user_id) -> Value: Kind
+        if all_bot_refs:
+            # Query bots for each user_id separately to respect user boundaries
+            for ctx_user_id in context_user_ids:
+                user_bot_refs = [
+                    (name, ns) for name, ns, uid in all_bot_refs if uid == ctx_user_id
+                ]
+                if user_bot_refs:
+                    bots = (
+                        db.query(Kind)
+                        .filter(
+                            Kind.user_id == ctx_user_id,
+                            Kind.kind == "Bot",
+                            Kind.is_active == True,
+                        )
+                        .all()
+                    )
+                    for bot in bots:
+                        bots_dict[(bot.name, bot.namespace, bot.user_id)] = bot
+
+        # 3. Collect all shell and model references from bots
+        shell_refs = []  # (name, namespace, user_id)
+        model_refs = []  # (name, namespace, user_id)
+        for bot_key, bot in bots_dict.items():
+            bot_user_id = bot_key[2]  # Extract user_id from tuple key
+            bot_crd = Bot.model_validate(bot.json)
+            shell_refs.append(
+                (bot_crd.spec.shellRef.name, bot_crd.spec.shellRef.namespace, bot_user_id)
+            )
+            if bot_crd.spec.modelRef:
+                model_refs.append(
+                    (
+                        bot_crd.spec.modelRef.name,
+                        bot_crd.spec.modelRef.namespace,
+                        bot_user_id,
+                    )
+                )
+
+        # 4. Batch query all shells
+        shells_dict = {}  # Key: (name, namespace, user_id) -> Value: Kind
+        if shell_refs:
+            for ctx_user_id in context_user_ids:
+                user_shell_refs = [
+                    (name, ns) for name, ns, uid in shell_refs if uid == ctx_user_id
+                ]
+                if user_shell_refs:
+                    shells = (
+                        db.query(Kind)
+                        .filter(
+                            Kind.user_id == ctx_user_id,
+                            Kind.kind == "Shell",
+                            Kind.is_active == True,
+                        )
+                        .all()
+                    )
+                    for shell in shells:
+                        shells_dict[(shell.name, shell.namespace, shell.user_id)] = shell
+
+        # 5. Batch query all models
+        models_dict = {}  # Key: (name, namespace, user_id) -> Value: Kind
+        if model_refs:
+            for ctx_user_id in context_user_ids:
+                user_model_refs = [
+                    (name, ns) for name, ns, uid in model_refs if uid == ctx_user_id
+                ]
+                if user_model_refs:
+                    models = (
+                        db.query(Kind)
+                        .filter(
+                            Kind.user_id == ctx_user_id,
+                            Kind.kind == "Model",
+                            Kind.is_active == True,
+                        )
+                        .all()
+                    )
+                    for model in models:
+                        models_dict[(model.name, model.namespace, model.user_id)] = model
+
+        # 6. Also query public shells and models (namespace-based, no user_id filter)
+        public_shells_dict = {}  # Key: (name, namespace) -> Value: Kind
+        public_models_dict = {}  # Key: (name, namespace) -> Value: Kind
+
+        # Collect unique shell/model refs for public query
+        unique_shell_refs = set((name, ns) for name, ns, _ in shell_refs)
+        unique_model_refs = set((name, ns) for name, ns, _ in model_refs)
+
+        if unique_shell_refs:
+            public_shells = (
+                db.query(Kind)
+                .filter(
+                    Kind.kind == "Shell",
+                    Kind.is_active == True,
+                )
+                .all()
+            )
+            for shell in public_shells:
+                public_shells_dict[(shell.name, shell.namespace)] = shell
+
+        if unique_model_refs:
+            public_models = (
+                db.query(Kind)
+                .filter(
+                    Kind.kind == "Model",
+                    Kind.is_active == True,
+                )
+                .all()
+            )
+            for model in public_models:
+                public_models_dict[(model.name, model.namespace)] = model
+
+        # ===== END BATCH LOADING =====
+
         # Convert to result format
         result = []
         for team_data in teams_data:
@@ -364,8 +489,16 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             )
 
             # Convert to team dict using the appropriate context user ID
+            # Pass preloaded data to avoid N+1 queries
             team_dict = self._convert_to_team_dict(
-                temp_team, db, team_data.context_user_id
+                temp_team,
+                db,
+                team_data.context_user_id,
+                bots_dict=bots_dict,
+                shells_dict=shells_dict,
+                models_dict=models_dict,
+                public_shells_dict=public_shells_dict,
+                public_models_dict=public_models_dict,
             )
 
             # For own teams, check if share_status is set in metadata.labels
@@ -998,10 +1131,28 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         return None
 
     def _convert_to_team_dict(
-        self, team: Kind, db: Session, user_id: int
+        self,
+        team: Kind,
+        db: Session,
+        user_id: int,
+        bots_dict: Optional[Dict[tuple, Kind]] = None,
+        shells_dict: Optional[Dict[tuple, Kind]] = None,
+        models_dict: Optional[Dict[tuple, Kind]] = None,
+        public_shells_dict: Optional[Dict[tuple, Kind]] = None,
+        public_models_dict: Optional[Dict[tuple, Kind]] = None,
     ) -> Dict[str, Any]:
         """
         Convert kinds Team to team-like dictionary
+
+        Args:
+            team: Team Kind object
+            db: Database session
+            user_id: User ID for context
+            bots_dict: Pre-loaded bots dictionary for performance (optional)
+            shells_dict: Pre-loaded shells dictionary for performance (optional)
+            models_dict: Pre-loaded models dictionary for performance (optional)
+            public_shells_dict: Pre-loaded public shells dictionary for performance (optional)
+            public_models_dict: Pre-loaded public models dictionary for performance (optional)
         """
 
         team_crd = Team.model_validate(team.json)
@@ -1011,21 +1162,33 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         shell_types = set()
 
         for member in team_crd.spec.members:
-            # Find bot in kinds table
-            bot = (
-                db.query(Kind)
-                .filter(
-                    Kind.user_id == user_id,
-                    Kind.kind == "Bot",
-                    Kind.name == member.botRef.name,
-                    Kind.namespace == member.botRef.namespace,
-                    Kind.is_active == True,
+            # Find bot - use preloaded dict if available, otherwise query
+            bot = None
+            if bots_dict is not None:
+                bot = bots_dict.get((member.botRef.name, member.botRef.namespace, user_id))
+            else:
+                bot = (
+                    db.query(Kind)
+                    .filter(
+                        Kind.user_id == user_id,
+                        Kind.kind == "Bot",
+                        Kind.name == member.botRef.name,
+                        Kind.namespace == member.botRef.namespace,
+                        Kind.is_active == True,
+                    )
+                    .first()
                 )
-                .first()
-            )
 
             if bot:
-                bot_summary = self._get_bot_summary(bot, db, user_id)
+                bot_summary = self._get_bot_summary(
+                    bot,
+                    db,
+                    user_id,
+                    shells_dict=shells_dict,
+                    models_dict=models_dict,
+                    public_shells_dict=public_shells_dict,
+                    public_models_dict=public_models_dict,
+                )
                 bot_info = {
                     "bot_id": bot.id,
                     "bot_prompt": member.prompt or "",
@@ -1045,40 +1208,62 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
         agent_type = None
         if bots:
             first_bot_id = bots[0]["bot_id"]
-            first_bot = (
-                db.query(Kind)
-                .filter(
-                    Kind.id == first_bot_id,
-                    Kind.user_id == user_id,
-                    Kind.kind == "Bot",
-                    Kind.is_active.is_(True),
-                )
-                .first()
-            )
 
-            if first_bot:
-                bot_crd = Bot.model_validate(first_bot.json)
-                shell_type = None
-
-                # First check user's custom shells
-                shell = (
+            # Find first bot - use preloaded dict if available
+            first_bot = None
+            if bots_dict is not None:
+                # Find in bots_dict by id
+                for bot in bots_dict.values():
+                    if bot.id == first_bot_id:
+                        first_bot = bot
+                        break
+            else:
+                first_bot = (
                     db.query(Kind)
                     .filter(
+                        Kind.id == first_bot_id,
                         Kind.user_id == user_id,
-                        Kind.kind == "Shell",
-                        Kind.name == bot_crd.spec.shellRef.name,
-                        Kind.namespace == bot_crd.spec.shellRef.namespace,
+                        Kind.kind == "Bot",
                         Kind.is_active.is_(True),
                     )
                     .first()
                 )
 
+            if first_bot:
+                bot_crd = Bot.model_validate(first_bot.json)
+                shell_type = None
+
+                # Find shell - use preloaded dict if available
+                shell = None
+                if shells_dict is not None:
+                    shell = shells_dict.get(
+                        (bot_crd.spec.shellRef.name, bot_crd.spec.shellRef.namespace, user_id)
+                    )
+
+                if shell is None and public_shells_dict is not None:
+                    shell = public_shells_dict.get(
+                        (bot_crd.spec.shellRef.name, bot_crd.spec.shellRef.namespace)
+                    )
+
+                if shell is None:
+                    # Fallback to query if not in preloaded dicts
+                    shell = (
+                        db.query(Kind)
+                        .filter(
+                            Kind.user_id == user_id,
+                            Kind.kind == "Shell",
+                            Kind.name == bot_crd.spec.shellRef.name,
+                            Kind.namespace == bot_crd.spec.shellRef.namespace,
+                            Kind.is_active.is_(True),
+                        )
+                        .first()
+                    )
+
                 if shell:
                     shell_crd = Shell.model_validate(shell.json)
                     shell_type = shell_crd.spec.shellType
                 else:
-                    # If not found, check public shells
-
+                    # If not found in user's shells, check public shells
                     public_shell = (
                         db.query(Kind)
                         .filter(
@@ -1127,10 +1312,28 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             "agent_type": agent_type,  # Add agent_type field
         }
 
-    def _get_bot_summary(self, bot: Kind, db: Session, user_id: int) -> Dict[str, Any]:
+    def _get_bot_summary(
+        self,
+        bot: Kind,
+        db: Session,
+        user_id: int,
+        shells_dict: Optional[Dict[tuple, Kind]] = None,
+        models_dict: Optional[Dict[tuple, Kind]] = None,
+        public_shells_dict: Optional[Dict[tuple, Kind]] = None,
+        public_models_dict: Optional[Dict[tuple, Kind]] = None,
+    ) -> Dict[str, Any]:
         """
         Get a summary of bot information including agent_config with only necessary fields.
         This is used for team list to determine if bots have predefined models.
+
+        Args:
+            bot: Bot Kind object
+            db: Database session
+            user_id: User ID for context
+            shells_dict: Pre-loaded shells dictionary for performance (optional)
+            models_dict: Pre-loaded models dictionary for performance (optional)
+            public_shells_dict: Pre-loaded public shells dictionary for performance (optional)
+            public_models_dict: Pre-loaded public models dictionary for performance (optional)
         """
         import logging
 
@@ -1148,18 +1351,31 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
             f"[_get_bot_summary] bot.name={bot.name}, modelRef.name={model_ref_name}, modelRef.namespace={model_ref_namespace}"
         )
 
-        # Get shell to extract shell_type
-        shell = (
-            db.query(Kind)
-            .filter(
-                Kind.user_id == user_id,
-                Kind.kind == "Shell",
-                Kind.name == bot_crd.spec.shellRef.name,
-                Kind.namespace == bot_crd.spec.shellRef.namespace,
-                Kind.is_active.is_(True),
+        # Get shell to extract shell_type - use preloaded dict if available
+        shell = None
+        if shells_dict is not None:
+            shell = shells_dict.get(
+                (bot_crd.spec.shellRef.name, bot_crd.spec.shellRef.namespace, user_id)
             )
-            .first()
-        )
+
+        if shell is None and public_shells_dict is not None:
+            shell = public_shells_dict.get(
+                (bot_crd.spec.shellRef.name, bot_crd.spec.shellRef.namespace)
+            )
+
+        if shell is None:
+            # Fallback to query if not in preloaded dicts
+            shell = (
+                db.query(Kind)
+                .filter(
+                    Kind.user_id == user_id,
+                    Kind.kind == "Shell",
+                    Kind.name == bot_crd.spec.shellRef.name,
+                    Kind.namespace == bot_crd.spec.shellRef.namespace,
+                    Kind.is_active.is_(True),
+                )
+                .first()
+            )
 
         shell_type = ""
         if shell and shell.json:
@@ -1170,18 +1386,24 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
 
         # Only try to find model if modelRef exists
         if model_ref_name and model_ref_namespace:
-            # Try to find model in user's private models first
-            model = (
-                db.query(Kind)
-                .filter(
-                    Kind.user_id == user_id,
-                    Kind.kind == "Model",
-                    Kind.name == model_ref_name,
-                    Kind.namespace == model_ref_namespace,
-                    Kind.is_active.is_(True),
+            # Try to find model in user's private models first - use preloaded dict if available
+            model = None
+            if models_dict is not None:
+                model = models_dict.get((model_ref_name, model_ref_namespace, user_id))
+
+            if model is None:
+                # Fallback to query
+                model = (
+                    db.query(Kind)
+                    .filter(
+                        Kind.user_id == user_id,
+                        Kind.kind == "Model",
+                        Kind.name == model_ref_name,
+                        Kind.namespace == model_ref_namespace,
+                        Kind.is_active.is_(True),
+                    )
+                    .first()
                 )
-                .first()
-            )
 
             logger.info(f"[_get_bot_summary] Private model found: {model is not None}")
 
@@ -1214,16 +1436,24 @@ class TeamKindsService(BaseService[Kind, TeamCreate, TeamUpdate]):
                         f"[_get_bot_summary] Predefined model (isCustomConfig=False), returning bind_model: {agent_config}"
                     )
             else:
-                # Try to find in public_models table
-                public_model = (
-                    db.query(Kind)
-                    .filter(
-                        Kind.name == model_ref_name,
-                        Kind.namespace == model_ref_namespace,
-                        Kind.is_active.is_(True),
+                # Try to find in public_models - use preloaded dict if available
+                public_model = None
+                if public_models_dict is not None:
+                    public_model = public_models_dict.get(
+                        (model_ref_name, model_ref_namespace)
                     )
-                    .first()
-                )
+
+                if public_model is None:
+                    # Fallback to query
+                    public_model = (
+                        db.query(Kind)
+                        .filter(
+                            Kind.name == model_ref_name,
+                            Kind.namespace == model_ref_namespace,
+                            Kind.is_active.is_(True),
+                        )
+                        .first()
+                    )
 
                 logger.info(
                     f"[_get_bot_summary] Public model found: {public_model is not None}"
