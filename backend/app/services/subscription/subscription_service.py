@@ -5,11 +5,14 @@
 """
 Subscription service for Smart Feed feature
 """
+import asyncio
+import json
 import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
@@ -227,7 +230,9 @@ class SubscriptionService:
         # Handle alert policy update
         if "alert_policy" in update_data and update_data["alert_policy"]:
             policy = update_data["alert_policy"]
-            subscription.alert_enabled = policy.get("enabled", subscription.alert_enabled)
+            subscription.alert_enabled = policy.get(
+                "enabled", subscription.alert_enabled
+            )
             subscription.alert_prompt = policy.get("prompt", subscription.alert_prompt)
             subscription.alert_keywords = policy.get(
                 "keywords", subscription.alert_keywords
@@ -340,9 +345,11 @@ class SubscriptionService:
         db.add(item)
 
         # Update subscription counters
-        subscription = db.query(Subscription).filter(
-            Subscription.id == obj_in.subscription_id
-        ).first()
+        subscription = (
+            db.query(Subscription)
+            .filter(Subscription.id == obj_in.subscription_id)
+            .first()
+        )
         if subscription:
             subscription.total_item_count += 1
             subscription.unread_count += 1
@@ -444,9 +451,11 @@ class SubscriptionService:
             item.is_read = True
 
             # Update unread count
-            subscription = db.query(Subscription).filter(
-                Subscription.id == subscription_id
-            ).first()
+            subscription = (
+                db.query(Subscription)
+                .filter(Subscription.id == subscription_id)
+                .first()
+            )
             if subscription and subscription.unread_count > 0:
                 subscription.unread_count -= 1
 
@@ -530,9 +539,11 @@ class SubscriptionService:
             run.finished_at = datetime.now()
 
             # Update subscription last run info
-            subscription = db.query(Subscription).filter(
-                Subscription.id == run.subscription_id
-            ).first()
+            subscription = (
+                db.query(Subscription)
+                .filter(Subscription.id == run.subscription_id)
+                .first()
+            )
             if subscription:
                 subscription.last_run_time = run.started_at
                 subscription.last_run_status = status
@@ -641,9 +652,7 @@ class SubscriptionService:
         total_deleted = 0
 
         subscriptions = (
-            db.query(Subscription)
-            .filter(Subscription.is_active == True)
-            .all()
+            db.query(Subscription).filter(Subscription.is_active == True).all()
         )
 
         for subscription in subscriptions:
@@ -739,6 +748,342 @@ class SubscriptionService:
             )
 
         return None
+
+    async def execute_subscription(
+        self,
+        db: Session,
+        *,
+        subscription: Subscription,
+        run: SubscriptionRun,
+        user: User,
+    ) -> Dict[str, Any]:
+        """
+        Execute a subscription task and save the result to subscription_items.
+
+        This method:
+        1. Gets the team and bot configuration
+        2. Calls the LLM API directly (non-streaming)
+        3. Saves the result to subscription_items
+        4. Updates the run status
+
+        Args:
+            db: Database session
+            subscription: The subscription to execute
+            run: The run record
+            user: The user who owns the subscription
+
+        Returns:
+            Dict with execution result
+        """
+        from app.models.subtask import Subtask, SubtaskRole, SubtaskStatus
+        from app.schemas.kind import Bot, Shell, Team
+        from app.services.chat.model_resolver import (
+            get_bot_system_prompt,
+            get_model_config_for_bot,
+        )
+
+        try:
+            # Update run status to running
+            run.status = SubscriptionRunStatus.RUNNING
+            db.commit()
+
+            # Get team
+            team = (
+                db.query(Kind)
+                .filter(
+                    Kind.id == subscription.team_id,
+                    Kind.kind == "Team",
+                    Kind.is_active == True,
+                )
+                .first()
+            )
+
+            if not team:
+                raise ValueError(f"Team not found: {subscription.team_id}")
+
+            team_crd = Team.model_validate(team.json)
+
+            # Get first bot
+            if not team_crd.spec.members:
+                raise ValueError("Team has no members")
+
+            first_member = team_crd.spec.members[0]
+            bot = (
+                db.query(Kind)
+                .filter(
+                    Kind.user_id == team.user_id,
+                    Kind.kind == "Bot",
+                    Kind.name == first_member.botRef.name,
+                    Kind.namespace == first_member.botRef.namespace,
+                    Kind.is_active == True,
+                )
+                .first()
+            )
+
+            if not bot:
+                raise ValueError(f"Bot not found: {first_member.botRef.name}")
+
+            # Get model config
+            model_config = get_model_config_for_bot(db, bot, team.user_id)
+
+            # Get system prompt
+            system_prompt = get_bot_system_prompt(
+                db, bot, team.user_id, first_member.prompt
+            )
+
+            # Build the prompt
+            prompt = (
+                subscription.description or f"Execute subscription: {subscription.name}"
+            )
+
+            # Call LLM API (non-streaming)
+            result = await self._call_llm_non_streaming(
+                model_config=model_config,
+                system_prompt=system_prompt,
+                message=prompt,
+            )
+
+            # Create subscription item with the result
+            item = self.create_item(
+                db,
+                obj_in=SubscriptionItemCreate(
+                    subscription_id=subscription.id,
+                    title=f"Run #{run.id}: {subscription.name}",
+                    content=result,
+                    summary=result[:200] + "..." if len(result) > 200 else result,
+                    run_id=run.id,
+                    should_alert=False,
+                ),
+            )
+
+            # Update run status to success
+            self.update_run(
+                db,
+                run_id=run.id,
+                status="success",
+                items_collected=1,
+                items_alerted=0,
+            )
+
+            logger.info(
+                f"Subscription {subscription.id} executed successfully, item_id={item.id}"
+            )
+
+            return {
+                "success": True,
+                "item_id": item.id,
+                "content": result,
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to execute subscription {subscription.id}: {e}", exc_info=True
+            )
+
+            # Update run status to failed
+            self.update_run(
+                db,
+                run_id=run.id,
+                status="failed",
+                error_message=str(e),
+            )
+
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    async def _call_llm_non_streaming(
+        self,
+        model_config: Dict[str, Any],
+        system_prompt: str,
+        message: str,
+    ) -> str:
+        """
+        Call LLM API without streaming.
+
+        Args:
+            model_config: Model configuration (api_key, base_url, model_id, model)
+            system_prompt: System prompt
+            message: User message
+
+        Returns:
+            LLM response text
+        """
+        model_type = model_config.get("model", "openai")
+        api_key = model_config.get("api_key", "")
+        base_url = model_config.get("base_url", "https://api.openai.com/v1")
+        model_id = model_config.get("model_id", "gpt-4")
+        default_headers = model_config.get("default_headers", {})
+
+        # Build messages
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": message})
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            if model_type == "claude":
+                return await self._call_claude_non_streaming(
+                    client, api_key, base_url, model_id, messages, default_headers
+                )
+            elif model_type == "gemini":
+                return await self._call_gemini_non_streaming(
+                    client, api_key, base_url, model_id, messages, default_headers
+                )
+            else:
+                return await self._call_openai_non_streaming(
+                    client, api_key, base_url, model_id, messages, default_headers
+                )
+
+    async def _call_openai_non_streaming(
+        self,
+        client: httpx.AsyncClient,
+        api_key: str,
+        base_url: str,
+        model_id: str,
+        messages: List[Dict[str, str]],
+        default_headers: Dict[str, Any] = None,
+    ) -> str:
+        """Call OpenAI-compatible API without streaming."""
+        url = f"{base_url.rstrip('/')}/chat/completions"
+        headers = {"Content-Type": "application/json"}
+
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        if default_headers:
+            headers.update(default_headers)
+
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "stream": False,
+        }
+
+        response = await client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()
+        choices = data.get("choices", [])
+        if choices:
+            return choices[0].get("message", {}).get("content", "")
+        return ""
+
+    async def _call_claude_non_streaming(
+        self,
+        client: httpx.AsyncClient,
+        api_key: str,
+        base_url: str,
+        model_id: str,
+        messages: List[Dict[str, str]],
+        default_headers: Dict[str, Any] = None,
+    ) -> str:
+        """Call Claude API without streaming."""
+        base_url_stripped = base_url.rstrip("/")
+        if base_url_stripped.endswith("/v1"):
+            url = f"{base_url_stripped}/messages"
+        else:
+            url = f"{base_url_stripped}/v1/messages"
+
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+
+        if default_headers:
+            headers.update(default_headers)
+
+        # Separate system message
+        system_content = ""
+        chat_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_content = msg["content"]
+            else:
+                chat_messages.append(
+                    {
+                        "role": msg["role"],
+                        "content": [{"type": "text", "text": msg["content"]}],
+                    }
+                )
+
+        payload = {
+            "model": model_id,
+            "max_tokens": 4096,
+            "stream": False,
+            "messages": chat_messages,
+        }
+        if system_content:
+            payload["system"] = system_content
+
+        response = await client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()
+        content = data.get("content", [])
+        if content:
+            return content[0].get("text", "")
+        return ""
+
+    async def _call_gemini_non_streaming(
+        self,
+        client: httpx.AsyncClient,
+        api_key: str,
+        base_url: str,
+        model_id: str,
+        messages: List[Dict[str, str]],
+        default_headers: Dict[str, Any] = None,
+    ) -> str:
+        """Call Gemini API without streaming."""
+        base_url_stripped = base_url.rstrip("/")
+        if "generativelanguage.googleapis.com" in base_url_stripped:
+            if "/v1beta" in base_url_stripped or "/v1" in base_url_stripped:
+                url = f"{base_url_stripped}/models/{model_id}:generateContent"
+            else:
+                url = f"{base_url_stripped}/v1beta/models/{model_id}:generateContent"
+        else:
+            url = f"{base_url_stripped}/v1beta/models/{model_id}:generateContent"
+
+        headers = {"Content-Type": "application/json"}
+
+        if api_key:
+            headers["x-goog-api-key"] = api_key
+
+        if default_headers:
+            headers.update(default_headers)
+
+        # Convert messages to Gemini format
+        system_instruction = None
+        gemini_contents = []
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+
+            if role == "system":
+                system_instruction = {"parts": [{"text": content}]}
+                continue
+
+            gemini_role = "model" if role == "assistant" else "user"
+            gemini_contents.append({"role": gemini_role, "parts": [{"text": content}]})
+
+        payload = {"contents": gemini_contents}
+        if system_instruction:
+            payload["systemInstruction"] = system_instruction
+
+        response = await client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()
+        candidates = data.get("candidates", [])
+        if candidates:
+            content_obj = candidates[0].get("content", {})
+            parts = content_obj.get("parts", [])
+            if parts:
+                return parts[0].get("text", "")
+        return ""
 
 
 subscription_service = SubscriptionService()

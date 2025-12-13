@@ -57,9 +57,7 @@ class AlertPolicy(BaseModel):
     prompt: Optional[str] = Field(
         None, description="AI prompt for determining if alert is needed"
     )
-    keywords: Optional[List[str]] = Field(
-        None, description="Keywords for AI reference"
-    )
+    keywords: Optional[List[str]] = Field(None, description="Keywords for AI reference")
 
 
 class RetentionConfig(BaseModel):
@@ -88,7 +86,9 @@ class SubscriptionCreate(SubscriptionBase):
 
     team_id: Optional[int] = Field(None, description="Team ID (takes priority)")
     team_name: Optional[str] = Field(None, description="Team name")
-    team_namespace: Optional[str] = Field(default="default", description="Team namespace")
+    team_namespace: Optional[str] = Field(
+        default="default", description="Team namespace"
+    )
     trigger: TriggerConfig
     alert_policy: Optional[AlertPolicy] = None
     retention: Optional[RetentionConfig] = None
@@ -146,6 +146,7 @@ class SubscriptionListResponse(BaseModel):
 
 
 # Subscription Item Schemas
+# Subscription Item Schemas
 class SubscriptionItemBase(BaseModel):
     """Base subscription item model"""
 
@@ -153,7 +154,9 @@ class SubscriptionItemBase(BaseModel):
     content: Optional[str] = Field(None, description="Item content in markdown")
     summary: Optional[str] = Field(None, description="AI generated summary")
     source_url: Optional[str] = Field(None, max_length=1000, description="Source URL")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Extended metadata")
+    item_metadata: Optional[Dict[str, Any]] = Field(
+        None, description="Extended metadata"
+    )
 
 
 class SubscriptionItemCreate(SubscriptionItemBase):

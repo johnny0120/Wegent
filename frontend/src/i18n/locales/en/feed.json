@@ -1,8 +1,12 @@
 {
   "title": "Smart Feed",
   "subscriptions": "Subscriptions",
+  "subscriptions_manage": "Manage",
   "subscription": "Subscription",
+  "subscription_details": "Subscription Details",
+  "all_subscriptions": "All Subscriptions",
   "feed": "Feed",
+  "trigger_run": "Run Now",
   "items": "Items",
   "runs": "Run History",
   "unread": "Unread",
@@ -84,5 +88,11 @@
   "cron_every_hour": "Every hour",
   "cron_every_30min": "Every 30 minutes",
   "cron_daily_9am": "Daily at 9:00 AM",
-  "cron_weekdays_9am": "Weekdays at 9:00 AM"
+  "cron_weekdays_9am": "Weekdays at 9:00 AM",
+
+  "run_triggered_success": "Task triggered successfully",
+  "run_triggered_description": "The subscription task is running in the background. Results will appear in the feed shortly.",
+  "run_triggered_failed": "Failed to trigger task",
+  "view_task": "View Task",
+  "view_feed": "View Feed"
 }

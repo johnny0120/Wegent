@@ -2,15 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
-import { useRouter } from 'next/navigation'
-import TopNavigation from '@/features/layout/TopNavigation'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import TopNavigation from '@/features/layout/TopNavigation';
+import TaskSidebar from '@/features/tasks/components/TaskSidebar';
+import ResizableSidebar from '@/features/tasks/components/ResizableSidebar';
+import CollapsedSidebarButtons from '@/features/tasks/components/CollapsedSidebarButtons';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -18,58 +23,76 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/ui/select';
 import {
   RssIcon,
   PlusIcon,
   PlayIcon,
   PauseIcon,
   TrashIcon,
-  SettingsIcon,
   ClockIcon,
   LinkIcon,
-  ArrowLeftIcon,
-} from 'lucide-react'
-import { subscriptionsApi } from '@/apis/subscriptions'
-import { Subscription, SubscriptionCreate, TriggerType } from '@/types/subscription'
-import { teamService } from '@/features/tasks/service/teamService'
-import { Team } from '@/types/api'
-import '@/features/common/scrollbar.css'
+} from 'lucide-react';
+import { subscriptionsApi } from '@/apis/subscriptions';
+import { Subscription, SubscriptionCreate, TriggerType } from '@/types/subscription';
+import { teamService } from '@/features/tasks/service/teamService';
+import { Team } from '@/types/api';
+import { GithubStarButton } from '@/features/layout/GithubStarButton';
+import { ThemeToggle } from '@/features/theme/ThemeToggle';
+import { useIsMobile } from '@/features/layout/hooks/useMediaQuery';
+import { useChatStreamContext } from '@/features/tasks/contexts/chatStreamContext';
+import '@/app/tasks/tasks.css';
+import '@/features/common/scrollbar.css';
+
+type FeedTabType = 'feed' | 'subscriptions';
+type FilterType = 'all' | 'enabled' | 'disabled';
 
 export default function SubscriptionsPage() {
-  const { t } = useTranslation('feed')
-  const router = useRouter()
+  const { t } = useTranslation('feed');
+  const router = useRouter();
+  const isMobile = useIsMobile();
+  const { clearAllStreams } = useChatStreamContext();
 
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
-  const [teams, setTeams] = useState<Team[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null)
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+  const [filter, setFilter] = useState<FilterType>('all');
+
+  // Active tab
+  const activeTab: FeedTabType = 'subscriptions';
+
+  // Mobile sidebar state
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Collapsed sidebar state
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<{
-    name: string
-    description: string
-    team_id: string
-    trigger_type: TriggerType
-    cron_expression: string
-    cron_timezone: string
-    alert_enabled: boolean
-    alert_prompt: string
-    retention_days: number
-    enabled: boolean
+    name: string;
+    description: string;
+    team_id: string;
+    trigger_type: TriggerType;
+    cron_expression: string;
+    cron_timezone: string;
+    alert_enabled: boolean;
+    alert_prompt: string;
+    retention_days: number;
+    enabled: boolean;
   }>({
     name: '',
     description: '',
@@ -81,35 +104,64 @@ export default function SubscriptionsPage() {
     alert_prompt: '',
     retention_days: 30,
     enabled: true,
-  })
+  });
+
+  // Load collapsed state from localStorage
+  useEffect(() => {
+    const savedCollapsed = localStorage.getItem('task-sidebar-collapsed');
+    if (savedCollapsed === 'true') {
+      setIsCollapsed(true);
+    }
+  }, []);
 
   // Load subscriptions
   const loadSubscriptions = useCallback(async () => {
     try {
-      setIsLoading(true)
-      const response = await subscriptionsApi.getSubscriptions({ limit: 100 })
-      setSubscriptions(response.items)
+      setIsLoading(true);
+      const response = await subscriptionsApi.getSubscriptions({ limit: 100 });
+      setSubscriptions(response.items);
     } catch (error) {
-      console.error('Failed to load subscriptions:', error)
+      console.error('Failed to load subscriptions:', error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }, [])
+  }, []);
 
   // Load teams
   const loadTeams = useCallback(async () => {
     try {
-      const response = await teamService.getTeams()
-      setTeams(response)
+      const response = await teamService.getTeams();
+      setTeams(Array.isArray(response.items) ? response.items : []);
     } catch (error) {
-      console.error('Failed to load teams:', error)
+      console.error('Failed to load teams:', error);
+      setTeams([]);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadSubscriptions()
-    loadTeams()
-  }, [loadSubscriptions, loadTeams])
+    loadSubscriptions();
+    loadTeams();
+  }, [loadSubscriptions, loadTeams]);
+
+  const handleToggleCollapsed = () => {
+    setIsCollapsed(prev => {
+      const newValue = !prev;
+      localStorage.setItem('task-sidebar-collapsed', String(newValue));
+      return newValue;
+    });
+  };
+
+  // Handle new task from collapsed sidebar button
+  const handleNewTask = () => {
+    clearAllStreams();
+    router.replace('/feed/subscriptions');
+  };
+
+  const handleTabChange = (tab: string) => {
+    if (tab === 'feed') {
+      router.push('/feed');
+    }
+  };
 
   const resetForm = () => {
     setFormData({
@@ -123,11 +175,11 @@ export default function SubscriptionsPage() {
       alert_prompt: '',
       retention_days: 30,
       enabled: true,
-    })
-  }
+    });
+  };
 
   const handleCreate = async () => {
-    if (!formData.name || !formData.team_id) return
+    if (!formData.name || !formData.team_id) return;
 
     try {
       const data: SubscriptionCreate = {
@@ -152,80 +204,137 @@ export default function SubscriptionsPage() {
           days: formData.retention_days,
         },
         enabled: formData.enabled,
-      }
+      };
 
-      await subscriptionsApi.createSubscription(data)
-      setShowCreateDialog(false)
-      resetForm()
-      loadSubscriptions()
+      await subscriptionsApi.createSubscription(data);
+      setShowCreateDialog(false);
+      resetForm();
+      loadSubscriptions();
     } catch (error) {
-      console.error('Failed to create subscription:', error)
+      console.error('Failed to create subscription:', error);
     }
-  }
+  };
 
   const handleToggleEnabled = async (subscription: Subscription) => {
     try {
       if (subscription.enabled) {
-        await subscriptionsApi.disableSubscription(subscription.id)
+        await subscriptionsApi.disableSubscription(subscription.id);
       } else {
-        await subscriptionsApi.enableSubscription(subscription.id)
+        await subscriptionsApi.enableSubscription(subscription.id);
       }
-      loadSubscriptions()
+      loadSubscriptions();
     } catch (error) {
-      console.error('Failed to toggle subscription:', error)
+      console.error('Failed to toggle subscription:', error);
     }
-  }
+  };
 
   const handleDelete = async () => {
-    if (!selectedSubscription) return
+    if (!selectedSubscription) return;
 
     try {
-      await subscriptionsApi.deleteSubscription(selectedSubscription.id)
-      setShowDeleteDialog(false)
-      setSelectedSubscription(null)
-      loadSubscriptions()
+      await subscriptionsApi.deleteSubscription(selectedSubscription.id);
+      setShowDeleteDialog(false);
+      setSelectedSubscription(null);
+      loadSubscriptions();
     } catch (error) {
-      console.error('Failed to delete subscription:', error)
+      console.error('Failed to delete subscription:', error);
     }
-  }
+  };
 
   const handleTriggerRun = async (subscription: Subscription) => {
     try {
-      await subscriptionsApi.triggerSubscriptionRun(subscription.id)
-      loadSubscriptions()
+      await subscriptionsApi.triggerSubscriptionRun(subscription.id);
+      toast.success(t('run_triggered_success'), {
+        description: t('run_triggered_description'),
+        action: {
+          label: t('view_feed'),
+          onClick: () => router.push('/feed'),
+        },
+      });
+      loadSubscriptions();
     } catch (error) {
-      console.error('Failed to trigger run:', error)
+      console.error('Failed to trigger run:', error);
+      toast.error(t('run_triggered_failed'));
     }
-  }
+  };
+
+  // Filter subscriptions based on selected filter
+  const filteredSubscriptions = subscriptions.filter(subscription => {
+    if (filter === 'enabled') return subscription.enabled;
+    if (filter === 'disabled') return !subscription.enabled;
+    return true;
+  });
 
   return (
     <div className="flex smart-h-screen bg-base text-text-primary box-border">
+      {/* Collapsed sidebar floating buttons */}
+      {isCollapsed && !isMobile && (
+        <CollapsedSidebarButtons onExpand={handleToggleCollapsed} onNewTask={handleNewTask} />
+      )}
+
+      {/* Responsive resizable sidebar */}
+      <ResizableSidebar isCollapsed={isCollapsed} onToggleCollapsed={handleToggleCollapsed}>
+        <TaskSidebar
+          isMobileSidebarOpen={isMobileSidebarOpen}
+          setIsMobileSidebarOpen={setIsMobileSidebarOpen}
+          pageType="chat"
+          isCollapsed={isCollapsed}
+          onToggleCollapsed={handleToggleCollapsed}
+        />
+      </ResizableSidebar>
+
+      {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <TopNavigation activePage="feed" variant="with-sidebar">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/feed')}>
-            <ArrowLeftIcon className="h-4 w-4 mr-2" />
-            {t('feed')}
-          </Button>
+        {/* Top navigation */}
+        <TopNavigation
+          activePage="chat"
+          variant="with-sidebar"
+          title={t('title')}
+          onMobileSidebarToggle={() => setIsMobileSidebarOpen(true)}
+        >
+          {isMobile ? <ThemeToggle /> : <GithubStarButton />}
         </TopNavigation>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-          <div className="max-w-4xl mx-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h1 className="text-2xl font-bold">{t('subscriptions')}</h1>
-                <p className="text-text-secondary mt-1">{t('empty_subscriptions_hint')}</p>
-              </div>
-              <Button onClick={() => setShowCreateDialog(true)}>
-                <PlusIcon className="h-4 w-4 mr-2" />
-                {t('create_subscription')}
-              </Button>
-            </div>
+        {/* Feed/Subscriptions Tabs */}
+        <div className="px-6 pt-4 border-b border-border bg-surface">
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList>
+              <TabsTrigger value="feed">{t('feed')}</TabsTrigger>
+              <TabsTrigger value="subscriptions">{t('subscriptions_manage')}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
 
-            {/* Subscriptions list */}
+        {/* Content area */}
+        <div className="flex-1 overflow-auto p-6">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6 max-w-4xl mx-auto">
+            <div>
+              <h1 className="text-2xl font-bold">{t('subscriptions')}</h1>
+              <p className="text-text-secondary mt-1">{t('empty_subscriptions_hint')}</p>
+            </div>
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <PlusIcon className="h-4 w-4 mr-2" />
+              {t('create_subscription')}
+            </Button>
+          </div>
+
+          {/* Filter tabs */}
+          <div className="mb-6 max-w-4xl mx-auto">
+            <Tabs value={filter} onValueChange={(v: string) => setFilter(v as FilterType)}>
+              <TabsList>
+                <TabsTrigger value="all">{t('all')}</TabsTrigger>
+                <TabsTrigger value="enabled">{t('subscription_enabled')}</TabsTrigger>
+                <TabsTrigger value="disabled">{t('subscription_disabled')}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {/* Subscriptions list */}
+          <div className="max-w-4xl mx-auto">
             {isLoading ? (
               <div className="text-center py-12 text-text-secondary">Loading...</div>
-            ) : subscriptions.length === 0 ? (
+            ) : filteredSubscriptions.length === 0 ? (
               <Card className="text-center py-12">
                 <CardContent>
                   <RssIcon className="h-16 w-16 mx-auto mb-4 text-text-muted" />
@@ -239,7 +348,7 @@ export default function SubscriptionsPage() {
               </Card>
             ) : (
               <div className="space-y-4">
-                {subscriptions.map(subscription => (
+                {filteredSubscriptions.map(subscription => (
                   <Card key={subscription.id}>
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between">
@@ -284,8 +393,8 @@ export default function SubscriptionsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              setSelectedSubscription(subscription)
-                              setShowDeleteDialog(true)
+                              setSelectedSubscription(subscription);
+                              setShowDeleteDialog(true);
                             }}
                           >
                             <TrashIcon className="h-4 w-4 text-red-500" />
@@ -336,10 +445,10 @@ export default function SubscriptionsPage() {
                           <Badge
                             variant={
                               subscription.last_run_status === 'success'
-                                ? 'default'
+                                ? 'success'
                                 : subscription.last_run_status === 'failed'
-                                ? 'destructive'
-                                : 'secondary'
+                                  ? 'error'
+                                  : 'secondary'
                             }
                             className="ml-2"
                           >
@@ -426,9 +535,7 @@ export default function SubscriptionsPage() {
                 <Label>{t('cron_expression')}</Label>
                 <Input
                   value={formData.cron_expression}
-                  onChange={e =>
-                    setFormData({ ...formData, cron_expression: e.target.value })
-                  }
+                  onChange={e => setFormData({ ...formData, cron_expression: e.target.value })}
                   placeholder="0 */30 * * * *"
                 />
                 <p className="text-xs text-text-muted mt-1">
@@ -441,9 +548,7 @@ export default function SubscriptionsPage() {
               <Label>{t('alert_enabled')}</Label>
               <Switch
                 checked={formData.alert_enabled}
-                onCheckedChange={checked =>
-                  setFormData({ ...formData, alert_enabled: checked })
-                }
+                onCheckedChange={checked => setFormData({ ...formData, alert_enabled: checked })}
               />
             </div>
 
@@ -452,9 +557,7 @@ export default function SubscriptionsPage() {
                 <Label>{t('alert_prompt')}</Label>
                 <Textarea
                   value={formData.alert_prompt}
-                  onChange={e =>
-                    setFormData({ ...formData, alert_prompt: e.target.value })
-                  }
+                  onChange={e => setFormData({ ...formData, alert_prompt: e.target.value })}
                   placeholder={t('alert_prompt_placeholder')}
                   rows={3}
                 />
@@ -513,5 +616,5 @@ export default function SubscriptionsPage() {
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }

@@ -84,7 +84,9 @@ class Subscription(Base):
     items = relationship(
         "SubscriptionItem", back_populates="subscription", lazy="dynamic"
     )
-    runs = relationship("SubscriptionRun", back_populates="subscription", lazy="dynamic")
+    runs = relationship(
+        "SubscriptionRun", back_populates="subscription", lazy="dynamic"
+    )
 
     __table_args__ = (
         {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"},
@@ -104,7 +106,7 @@ class SubscriptionItem(Base):
     content = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     source_url = Column(String(1000), nullable=True)
-    metadata = Column(JSON, nullable=True)
+    item_metadata = Column(JSON, nullable=True)
 
     # Alert status
     should_alert = Column(Boolean, default=False)

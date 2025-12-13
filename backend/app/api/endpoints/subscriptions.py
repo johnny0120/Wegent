@@ -8,11 +8,12 @@ Subscription API routes for Smart Feed feature
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.core import security
+from app.models.subscription import SubscriptionRun
 from app.models.user import User
 from app.schemas.subscription import (
     FeedSummaryRequest,
@@ -159,12 +160,17 @@ def disable_subscription(
 
 
 @router.post("/{subscription_id}/run")
-def trigger_run(
+async def trigger_run(
     subscription_id: int,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Manually trigger a subscription run"""
+    """Manually trigger a subscription run.
+
+    This executes the subscription task asynchronously and saves the result
+    to subscription_items for display in the feed page.
+    """
     subscription = subscription_service.get_subscription(
         db=db,
         subscription_id=subscription_id,
@@ -179,13 +185,71 @@ def trigger_run(
         subscription_id=subscription_id,
     )
 
-    # TODO: Trigger actual task execution via executor_manager
-    # For now, just return the run info
+    logger.info(
+        f"Subscription run triggered: subscription_id={subscription_id}, run_id={run.id}"
+    )
+
+    # Execute the subscription task in background
+    background_tasks.add_task(
+        _execute_subscription_task,
+        subscription_id=subscription_id,
+        run_id=run.id,
+        user_id=current_user.id,
+    )
+
     return {
         "message": "Run triggered successfully",
         "run_id": run.id,
         "subscription_id": subscription_id,
     }
+
+
+async def _execute_subscription_task(
+    subscription_id: int,
+    run_id: int,
+    user_id: int,
+):
+    """Background task to execute subscription."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        # Get subscription
+        subscription = subscription_service.get_subscription(
+            db=db,
+            subscription_id=subscription_id,
+            user_id=user_id,
+        )
+        if not subscription:
+            logger.error(f"Subscription not found: {subscription_id}")
+            return
+
+        # Get run
+        run = db.query(SubscriptionRun).filter(SubscriptionRun.id == run_id).first()
+        if not run:
+            logger.error(f"Run not found: {run_id}")
+            return
+
+        # Get user
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            logger.error(f"User not found: {user_id}")
+            return
+
+        # Execute subscription
+        result = await subscription_service.execute_subscription(
+            db=db,
+            subscription=subscription,
+            run=run,
+            user=user,
+        )
+
+        logger.info(f"Subscription execution completed: {result}")
+
+    except Exception as e:
+        logger.error(f"Failed to execute subscription task: {e}", exc_info=True)
+    finally:
+        db.close()
 
 
 # Items endpoints
@@ -234,7 +298,9 @@ def get_item(
     return item
 
 
-@router.post("/{subscription_id}/items/{item_id}/read", response_model=SubscriptionItemInDB)
+@router.post(
+    "/{subscription_id}/items/{item_id}/read", response_model=SubscriptionItemInDB
+)
 def mark_item_read(
     subscription_id: int,
     item_id: int,
@@ -310,7 +376,9 @@ def webhook_trigger(
     )
 
     # TODO: Trigger actual task execution via executor_manager
-    logger.info(f"Webhook triggered for subscription {subscription_id}, run_id={run.id}")
+    logger.info(
+        f"Webhook triggered for subscription {subscription_id}, run_id={run.id}"
+    )
 
     return WebhookTriggerResponse(
         success=True,

@@ -1,8 +1,12 @@
 {
   "title": "智能订阅",
   "subscriptions": "订阅管理",
+  "subscriptions_manage": "管理",
   "subscription": "订阅",
+  "subscription_details": "订阅详情",
+  "all_subscriptions": "所有订阅",
   "feed": "信息流",
+  "trigger_run": "立即运行",
   "items": "信息条目",
   "runs": "运行历史",
   "unread": "未读",
@@ -84,5 +88,11 @@
   "cron_every_hour": "每小时",
   "cron_every_30min": "每30分钟",
   "cron_daily_9am": "每天9:00",
-  "cron_weekdays_9am": "工作日9:00"
+  "cron_weekdays_9am": "工作日9:00",
+
+  "run_triggered_success": "任务已触发",
+  "run_triggered_description": "订阅任务正在后台运行，结果将很快显示在信息流中",
+  "run_triggered_failed": "触发任务失败",
+  "view_task": "查看任务",
+  "view_feed": "查看信息流"
 }
