@@ -10,8 +10,9 @@ Stores members who can participate in a task (group chat).
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import Column, DateTime, Integer, UniqueConstraint
+from sqlalchemy import Column, DateTime
 from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import Integer, UniqueConstraint
 from sqlalchemy.sql import func
 
 from app.db.base import Base
