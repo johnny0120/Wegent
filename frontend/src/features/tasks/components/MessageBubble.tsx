@@ -55,6 +55,8 @@ export interface Message {
   isIncomplete?: boolean;
   /** Flag indicating this message is waiting for first character (streaming but no content yet) */
   isWaiting?: boolean;
+  /** Original subtask data for group chat sender info */
+  subtask?: TaskDetailSubtask;
 }
 
 // CopyButton component for copying markdown content
