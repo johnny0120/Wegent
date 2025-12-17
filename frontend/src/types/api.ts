@@ -244,6 +244,7 @@ export interface TaskDetail {
   subtasks: TaskDetailSubtask[];
   workbench?: WorkbenchData | null;
   model_id?: string | null; // Model name used for this task
+  is_group_chat?: boolean; // Whether this is a group chat task
 }
 
 /** Subtask result structure */
@@ -282,6 +283,10 @@ export interface TaskDetailSubtask {
   completed_at: string;
   bots: Bot[];
   attachments?: Attachment[];
+  // Group chat fields
+  sender_type?: 'USER' | 'TEAM';
+  sender_user_id?: number;
+  sender_username?: string;
 }
 
 export interface Task {
