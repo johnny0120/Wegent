@@ -36,6 +36,37 @@ logger = logging.getLogger(__name__)
 # ============ Member Management API ============
 
 
+@router.post("/{task_id}/convert-to-group-chat")
+def convert_to_group_chat(
+    task_id: int,
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Convert an existing task to a group chat.
+    Only the task owner can convert a task to group chat.
+    """
+    # Only task owner can convert to group chat
+    if not task_member_service.is_task_owner(db, task_id, current_user.id):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the task owner can convert this task to group chat",
+        )
+
+    # Convert the task
+    converted = task_member_service.convert_to_group_chat(db, task_id)
+
+    return {
+        "message": (
+            "Task converted to group chat successfully"
+            if converted
+            else "Task is already a group chat"
+        ),
+        "task_id": task_id,
+        "is_group_chat": True,
+    }
+
+
 @router.get("/{task_id}/members", response_model=TaskMemberListResponse)
 def get_task_members(
     task_id: int,
@@ -79,9 +110,7 @@ def add_task_member(
 
     # Check if task is a group chat
     if not task_member_service.is_group_chat(db, task_id):
-        raise HTTPException(
-            status_code=400, detail="This task is not a group chat"
-        )
+        raise HTTPException(status_code=400, detail="This task is not a group chat")
 
     # Add member
     member = task_member_service.add_member(
@@ -161,9 +190,7 @@ def generate_invite_link(
 
     # Check if task is a group chat
     if not task_member_service.is_group_chat(db, task_id):
-        raise HTTPException(
-            status_code=400, detail="This task is not a group chat"
-        )
+        raise HTTPException(status_code=400, detail="This task is not a group chat")
 
     # Generate invite token
     token = task_invite_service.generate_invite_token(
@@ -257,9 +284,7 @@ def join_by_invite(
         raise HTTPException(status_code=404, detail="Task not found")
 
     if not task_member_service.is_group_chat(db, task_id):
-        raise HTTPException(
-            status_code=400, detail="This task is not a group chat"
-        )
+        raise HTTPException(status_code=400, detail="This task is not a group chat")
 
     # Check if already a member
     if task_member_service.is_member(db, task_id, current_user.id):

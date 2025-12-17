@@ -147,6 +147,9 @@ async def _create_task_and_subtasks(
     """
     Create or get task and create subtasks for chat.
 
+    For group chat members, subtasks are created with the task owner's user_id
+    to ensure proper message history and visibility across all members.
+
     Returns:
         Tuple of (task, assistant_subtask)
     """
@@ -173,9 +176,11 @@ async def _create_task_and_subtasks(
         raise HTTPException(status_code=400, detail="No valid bots found in team")
 
     task = None
+    # Track the user_id to use for subtasks (owner's ID for group chats)
+    subtask_user_id = user.id
 
     if task_id:
-        # Get existing task
+        # Get existing task - check both ownership and membership
         task = (
             db.query(Kind)
             .filter(
@@ -186,6 +191,35 @@ async def _create_task_and_subtasks(
             )
             .first()
         )
+
+        # If not found as owner, check if user is a group chat member
+        if not task:
+            from app.models.task_member import MemberStatus, TaskMember
+
+            member = (
+                db.query(TaskMember)
+                .filter(
+                    TaskMember.task_id == task_id,
+                    TaskMember.user_id == user.id,
+                    TaskMember.status == MemberStatus.ACTIVE,
+                )
+                .first()
+            )
+
+            if member:
+                # User is a group member, get task without user_id check
+                task = (
+                    db.query(Kind)
+                    .filter(
+                        Kind.id == task_id,
+                        Kind.kind == "Task",
+                        Kind.is_active == True,
+                    )
+                    .first()
+                )
+                # For group members, use task owner's user_id for subtasks
+                if task:
+                    subtask_user_id = task.user_id
 
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -290,9 +324,10 @@ async def _create_task_and_subtasks(
         task_id = new_task_id
 
     # Get existing subtasks to determine message_id
+    # Use subtask_user_id to see all messages (for group chats, this is task owner's ID)
     existing_subtasks = (
         db.query(Subtask)
-        .filter(Subtask.task_id == task_id, Subtask.user_id == user.id)
+        .filter(Subtask.task_id == task_id, Subtask.user_id == subtask_user_id)
         .order_by(Subtask.message_id.desc())
         .all()
     )
@@ -305,7 +340,7 @@ async def _create_task_and_subtasks(
 
     # Create USER subtask
     user_subtask = Subtask(
-        user_id=user.id,
+        user_id=subtask_user_id,  # Use task owner's ID for group chats
         task_id=task_id,
         team_id=team.id,
         title=f"User message",
@@ -328,7 +363,7 @@ async def _create_task_and_subtasks(
     # Note: completed_at is set to a placeholder value because the DB column doesn't allow NULL
     # It will be updated when the stream completes
     assistant_subtask = Subtask(
-        user_id=user.id,
+        user_id=subtask_user_id,  # Use task owner's ID for group chats
         task_id=task_id,
         team_id=team.id,
         title=f"Assistant response",

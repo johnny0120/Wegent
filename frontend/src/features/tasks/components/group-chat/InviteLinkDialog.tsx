@@ -2,91 +2,93 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { Copy, Check, Link } from 'lucide-react'
+import { useState } from 'react';
+import { Copy, Check, Link } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { useToast } from '@/hooks/use-toast'
-import { taskMemberApi } from '@/apis/task-member'
-import { useTranslation } from '@/hooks/useTranslation'
+} from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
+import { taskMemberApi } from '@/apis/task-member';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface InviteLinkDialogProps {
-  open: boolean
-  onClose: () => void
-  taskId: number
-  taskTitle: string
+  open: boolean;
+  onClose: () => void;
+  taskId: number;
+  taskTitle: string;
 }
 
-export function InviteLinkDialog({
-  open,
-  onClose,
-  taskId,
-  taskTitle,
-}: InviteLinkDialogProps) {
-  const { t } = useTranslation()
-  const { toast } = useToast()
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [expiresHours, setExpiresHours] = useState('72')
-  const [loading, setLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
+export function InviteLinkDialog({ open, onClose, taskId, taskTitle }: InviteLinkDialogProps) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [expiresHours, setExpiresHours] = useState('72');
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const generateLink = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const response = await taskMemberApi.generateInviteLink(
-        taskId,
-        parseInt(expiresHours)
-      )
-      setInviteUrl(response.invite_url)
+      // First, ensure the task is converted to a group chat
+      try {
+        await taskMemberApi.convertToGroupChat(taskId);
+      } catch (conversionError: unknown) {
+        // Ignore conversion errors - task might already be a group chat or user might not be owner
+        // The important part is the generateInviteLink call below
+        console.log('Task conversion:', conversionError);
+      }
+
+      // Generate the invite link
+      const response = await taskMemberApi.generateInviteLink(taskId, parseInt(expiresHours));
+      setInviteUrl(response.invite_url);
     } catch (error: unknown) {
       toast({
         title: t('groupChat.inviteLink.generateFailed'),
         description: error instanceof Error ? error.message : undefined,
         variant: 'destructive',
-      })
+      });
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const copyLink = async () => {
-    if (!inviteUrl) return
+    if (!inviteUrl) return;
     try {
-      await navigator.clipboard.writeText(inviteUrl)
-      setCopied(true)
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
       toast({
         title: t('groupChat.inviteLink.copied'),
-      })
-      setTimeout(() => setCopied(false), 2000)
+      });
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       toast({
         title: t('groupChat.inviteLink.copyFailed'),
         variant: 'destructive',
-      })
+      });
     }
-  }
+  };
 
   const handleClose = () => {
-    setInviteUrl(null)
-    setCopied(false)
-    onClose()
-  }
+    setInviteUrl(null);
+    setCopied(false);
+    onClose();
+  };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -110,27 +112,15 @@ export function InviteLinkDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="24">
-                      {t('groupChat.inviteLink.hours24')}
-                    </SelectItem>
-                    <SelectItem value="72">
-                      {t('groupChat.inviteLink.days3')}
-                    </SelectItem>
-                    <SelectItem value="168">
-                      {t('groupChat.inviteLink.days7')}
-                    </SelectItem>
-                    <SelectItem value="720">
-                      {t('groupChat.inviteLink.days30')}
-                    </SelectItem>
+                    <SelectItem value="24">{t('groupChat.inviteLink.hours24')}</SelectItem>
+                    <SelectItem value="72">{t('groupChat.inviteLink.days3')}</SelectItem>
+                    <SelectItem value="168">{t('groupChat.inviteLink.days7')}</SelectItem>
+                    <SelectItem value="720">{t('groupChat.inviteLink.days30')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <Button
-                onClick={generateLink}
-                disabled={loading}
-                className="w-full"
-              >
+              <Button onClick={generateLink} disabled={loading} className="w-full">
                 <Link className="w-4 h-4 mr-2" />
                 {loading
                   ? t('groupChat.inviteLink.generating')
@@ -140,11 +130,7 @@ export function InviteLinkDialog({
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <Input
-                  value={inviteUrl}
-                  readOnly
-                  className="flex-1 text-sm"
-                />
+                <Input value={inviteUrl} readOnly className="flex-1 text-sm" />
                 <Button variant="outline" size="icon" onClick={copyLink}>
                   {copied ? (
                     <Check className="w-4 h-4 text-green-500" />
@@ -160,11 +146,7 @@ export function InviteLinkDialog({
                 })}
               </p>
 
-              <Button
-                variant="outline"
-                onClick={() => setInviteUrl(null)}
-                className="w-full"
-              >
+              <Button variant="outline" onClick={() => setInviteUrl(null)} className="w-full">
                 {t('groupChat.inviteLink.regenerate')}
               </Button>
             </>
@@ -172,5 +154,5 @@ export function InviteLinkDialog({
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

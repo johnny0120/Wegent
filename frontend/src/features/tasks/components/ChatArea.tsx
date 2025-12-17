@@ -558,13 +558,28 @@ export default function ChatArea({
     }
 
     if (!selectedTeam?.id || selectedTeam.id !== detailTeamId) {
+      // Try to find team in teams list first
       const matchedTeam = teams.find(team => team.id === detailTeamId) || null;
       if (matchedTeam) {
         setSelectedTeam(matchedTeam);
         setHasRestoredPreferences(true);
+      } else {
+        // For group chat members: team might not be in teams list
+        // Use team object directly from selectedTaskDetail if available
+        if (selectedTaskDetail?.team && typeof selectedTaskDetail.team === 'object') {
+          const teamFromDetail = selectedTaskDetail.team as Team;
+          if (teamFromDetail.id === detailTeamId) {
+            console.log(
+              '[ChatArea] Using team from task detail (group chat member):',
+              teamFromDetail.name
+            );
+            setSelectedTeam(teamFromDetail);
+            setHasRestoredPreferences(true);
+          }
+        }
       }
     }
-  }, [detailTeamId, teams, selectedTeam?.id, setSelectedTeam]);
+  }, [detailTeamId, teams, selectedTeam?.id, setSelectedTeam, selectedTaskDetail?.team]);
 
   // Set model and override flag when viewing existing task
   useEffect(() => {

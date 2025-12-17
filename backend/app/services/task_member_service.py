@@ -12,6 +12,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.kind import Kind
 from app.models.task_member import MemberStatus, TaskMember
@@ -38,11 +39,7 @@ class TaskMemberService:
 
     def get_user(self, db: Session, user_id: int) -> Optional[User]:
         """Get a user by ID"""
-        return (
-            db.query(User)
-            .filter(User.id == user_id, User.is_active == True)
-            .first()
-        )
+        return db.query(User).filter(User.id == user_id, User.is_active == True).first()
 
     def get_task_owner_id(self, db: Session, task_id: int) -> Optional[int]:
         """Get the owner (creator) user_id of a task"""
@@ -82,6 +79,36 @@ class TaskMemberService:
         task_json = task.json if isinstance(task.json, dict) else {}
         spec = task_json.get("spec", {})
         return spec.get("is_group_chat", False)
+
+    def convert_to_group_chat(self, db: Session, task_id: int) -> bool:
+        """Convert an existing task to a group chat"""
+        task = self.get_task(db, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        # Get current task JSON
+        task_json = task.json if isinstance(task.json, dict) else {}
+        spec = task_json.get("spec", {})
+
+        # Check if already a group chat
+        if spec.get("is_group_chat", False):
+            return False  # Already a group chat
+
+        # Set is_group_chat flag
+        spec["is_group_chat"] = True
+        task_json["spec"] = spec
+
+        # IMPORTANT: Mark the json field as modified so SQLAlchemy detects the change
+        task.json = task_json
+        flag_modified(task, "json")
+
+        task.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(task)
+
+        logger.info(f"Task {task_id} converted to group chat")
+        return True
 
     def get_member_count(self, db: Session, task_id: int) -> int:
         """Get the number of active members in a task (including owner)"""
@@ -182,9 +209,7 @@ class TaskMemberService:
 
         if existing:
             if existing.status == MemberStatus.ACTIVE:
-                raise HTTPException(
-                    status_code=400, detail="User is already a member"
-                )
+                raise HTTPException(status_code=400, detail="User is already a member")
             # Reactivate removed member
             existing.status = MemberStatus.ACTIVE
             existing.invited_by = invited_by
@@ -217,9 +242,7 @@ class TaskMemberService:
         """Remove a member from a task (soft delete)"""
         # Cannot remove the task owner
         if self.is_task_owner(db, task_id, user_id):
-            raise HTTPException(
-                status_code=400, detail="Cannot remove the task owner"
-            )
+            raise HTTPException(status_code=400, detail="Cannot remove the task owner")
 
         member = (
             db.query(TaskMember)

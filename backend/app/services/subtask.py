@@ -68,6 +68,9 @@ class SubtaskService(BaseService[Subtask, SubtaskCreate, SubtaskUpdate]):
     ) -> List[Subtask]:
         """
         Get subtasks by task ID, sorted by message_id.
+        For group chats, returns all subtasks from all members.
+        For regular tasks, returns only user's own subtasks.
+
         Uses a two-phase query approach to avoid MySQL "Out of sort memory" errors:
 
         Phase 1: Query only the IDs with sorting (no large columns)
@@ -76,15 +79,32 @@ class SubtaskService(BaseService[Subtask, SubtaskCreate, SubtaskUpdate]):
         This avoids MySQL error 1038 which occurs when sorting result sets
         containing large TEXT/BLOB columns (prompt, result, error_message).
         """
+        from app.services.task_member_service import task_member_service
+
+        # Check if this is a group chat and user is a member
+        is_member = task_member_service.is_member(db, task_id, user_id)
+
         # Phase 1: Get sorted subtask IDs without loading large columns
         # Only select columns needed for filtering and sorting
-        subtask_ids_query = (
-            db.query(Subtask.id)
-            .filter(Subtask.task_id == task_id, Subtask.user_id == user_id)
-            .order_by(Subtask.message_id.asc(), Subtask.created_at.asc())
-            .offset(skip)
-            .limit(limit)
-        )
+        if is_member:
+            # For group chat members, return all subtasks
+            subtask_ids_query = (
+                db.query(Subtask.id)
+                .filter(Subtask.task_id == task_id)
+                .order_by(Subtask.message_id.asc(), Subtask.created_at.asc())
+                .offset(skip)
+                .limit(limit)
+            )
+        else:
+            # For non-members, only return user's own subtasks
+            subtask_ids_query = (
+                db.query(Subtask.id)
+                .filter(Subtask.task_id == task_id, Subtask.user_id == user_id)
+                .order_by(Subtask.message_id.asc(), Subtask.created_at.asc())
+                .offset(skip)
+                .limit(limit)
+            )
+
         subtask_ids = [row[0] for row in subtask_ids_query.all()]
 
         if not subtask_ids:
@@ -113,15 +133,34 @@ class SubtaskService(BaseService[Subtask, SubtaskCreate, SubtaskUpdate]):
         self, db: Session, *, subtask_id: int, user_id: int
     ) -> Optional[Subtask]:
         """
-        Get Subtask by ID and user ID
+        Get Subtask by ID and user ID.
+        For group chat members, allows access to any subtask in the task.
         """
+        from app.services.task_member_service import task_member_service
+
+        # First try to find subtask owned by user
         subtask = (
             db.query(Subtask)
             .filter(Subtask.id == subtask_id, Subtask.user_id == user_id)
             .first()
         )
+
+        # If not found and user is a group chat member, allow access
+        if not subtask:
+            # Get the subtask to check its task_id
+            subtask_check = db.query(Subtask).filter(Subtask.id == subtask_id).first()
+
+            if subtask_check:
+                # Check if user is a member of this task's group chat
+                is_member = task_member_service.is_member(
+                    db, subtask_check.task_id, user_id
+                )
+                if is_member:
+                    subtask = subtask_check
+
         if not subtask:
             raise HTTPException(status_code=404, detail="Subtask not found")
+
         return subtask
 
     def update_subtask(

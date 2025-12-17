@@ -240,7 +240,8 @@
       "invitedBy": "Invited by {{name}}",
       "loadFailed": "Failed to load members",
       "removeSuccess": "{{name}} has been removed",
-      "removeFailed": "Failed to remove member"
+      "removeFailed": "Failed to remove member",
+      "notOwner": "Only the task owner can create invite links"
     }
   }
 }

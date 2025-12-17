@@ -14,7 +14,7 @@ import type {
   GitBranch,
   Attachment,
 } from '@/types/api';
-import { Share2, FileText, ChevronDown, Download, MessageSquare } from 'lucide-react';
+import { Share2, FileText, ChevronDown, Download, MessageSquare, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -34,6 +34,8 @@ import { type SelectableMessage } from './ExportPdfButton';
 import { generateChatPdf } from '@/utils/pdf-generator';
 import { getAttachmentPreviewUrl, isImageExtension } from '@/apis/attachments';
 import { getToken } from '@/apis/user';
+import { TaskMembersPanel } from './group-chat';
+import { useUser } from '@/features/common/UserContext';
 
 interface ResultWithThinking {
   thinking?: unknown[];
@@ -137,6 +139,7 @@ export default function MessagesArea({
   const { toast } = useToast();
   const { selectedTaskDetail, refreshSelectedTaskDetail } = useTaskContext();
   const { theme } = useTheme();
+  const { user } = useUser();
 
   // Task share modal state
   const [showShareModal, setShowShareModal] = useState(false);
@@ -144,6 +147,9 @@ export default function MessagesArea({
   const [isSharing, setIsSharing] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
+
+  // Group chat members panel state
+  const [showMembersPanel, setShowMembersPanel] = useState(false);
 
   // Use Typewriter effect for streaming content
   const displayContent = useTypewriter(streamingContent || '');
@@ -669,6 +675,17 @@ export default function MessagesArea({
 
     return (
       <div className="flex items-center gap-2">
+        {/* Members Button */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowMembersPanel(true)}
+          className="flex items-center gap-2"
+        >
+          <Users className="h-4 w-4" />
+          {t('groupChat.members.title') || 'Members'}
+        </Button>
+
         {/* Share Button */}
         <Button
           variant="outline"
@@ -871,6 +888,7 @@ export default function MessagesArea({
             )}
         </div>
       )}
+
       {/* Task Share Modal */}
       <TaskShareModal
         visible={showShareModal}
@@ -878,6 +896,17 @@ export default function MessagesArea({
         taskTitle={selectedTaskDetail?.title || 'Untitled Task'}
         shareUrl={shareUrl}
       />
+
+      {/* Group Chat Members Panel */}
+      {selectedTaskDetail?.id && user?.id && (
+        <TaskMembersPanel
+          open={showMembersPanel}
+          onClose={() => setShowMembersPanel(false)}
+          taskId={selectedTaskDetail.id}
+          taskTitle={selectedTaskDetail.title || selectedTaskDetail.prompt || 'Untitled Task'}
+          currentUserId={user.id}
+        />
+      )}
     </div>
   );
 }
