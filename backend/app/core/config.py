@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     CHAT_HISTORY_MAX_MESSAGES: int = 50  # Maximum messages to keep in history
     CHAT_API_TIMEOUT_SECONDS: int = 300  # LLM API call timeout (5 minutes)
 
+    # Tool calling flow limits
+    CHAT_TOOL_MAX_REQUESTS: int = 5  # Maximum LLM requests in tool calling flow
+    CHAT_TOOL_MAX_TIME_SECONDS: float = 30.0  # Maximum time for tool calling flow
+
     # Streaming incremental save configuration
     STREAMING_REDIS_SAVE_INTERVAL: float = 1.0  # Redis save interval (seconds)
     STREAMING_DB_SAVE_INTERVAL: float = 5.0  # Database save interval (seconds)

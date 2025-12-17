@@ -737,6 +737,9 @@ Task (Team + Workspace) → Subtasks (messages/steps)
   - `CHAT_MCP_SERVERS` - JSON configuration for MCP servers (similar to Claude Desktop format)
     - Supported server types: `stdio`, `sse`, `streamable-http`
     - Example: `{"mcpServers":{"image-gen":{"type":"sse","url":"http://localhost:8080/sse"}}}`
+- `CHAT_TOOL_*` - Tool calling flow limits for Chat Shell
+  - `CHAT_TOOL_MAX_REQUESTS` - Maximum LLM requests in tool calling flow (default: 5)
+  - `CHAT_TOOL_MAX_TIME_SECONDS` - Maximum time for tool calling flow in seconds (default: 30.0)
 
 #### Database Migrations (Alembic)
 
