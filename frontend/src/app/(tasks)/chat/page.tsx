@@ -15,6 +15,7 @@ import OnboardingTour from '@/features/onboarding/OnboardingTour';
 import TaskParamSync from '@/features/tasks/components/TaskParamSync';
 import TeamShareHandler from '@/features/tasks/components/TeamShareHandler';
 import TaskShareHandler from '@/features/tasks/components/TaskShareHandler';
+import { InviteJoinHandler } from '@/features/tasks/components/group-chat';
 import OidcTokenHandler from '@/features/login/components/OidcTokenHandler';
 import '@/app/tasks/tasks.css';
 import '@/features/common/scrollbar.css';
@@ -129,6 +130,10 @@ export default function ChatPage() {
       </Suspense>
       <Suspense>
         <TaskShareHandler onTaskCopied={refreshTasks} />
+      </Suspense>
+      {/* Handle group chat invite links */}
+      <Suspense>
+        <InviteJoinHandler />
       </Suspense>
       {/* Onboarding tour */}
       <OnboardingTour

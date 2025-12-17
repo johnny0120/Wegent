@@ -202,5 +202,45 @@
     "analyzing": "Analyzing in depth",
     "generating_response": "Please wait, generating response",
     "longer_than_usual": "Response is taking longer than usual"
+  },
+  "groupChat": {
+    "inviteLink": {
+      "title": "Invite to Group Chat",
+      "description": "Generate an invite link to share with others to join \"{{taskTitle}}\"",
+      "expiresIn": "Link expires in:",
+      "hours24": "24 hours",
+      "days3": "3 days",
+      "days7": "7 days",
+      "days30": "30 days",
+      "generate": "Generate Invite Link",
+      "generating": "Generating...",
+      "generateFailed": "Failed to generate invite link",
+      "copied": "Link copied to clipboard",
+      "copyFailed": "Failed to copy link",
+      "expiresNote": "Link expires in {{hours}} hours. Generate a new one if needed.",
+      "regenerate": "Generate New Link"
+    },
+    "invite": {
+      "title": "Join Group Chat",
+      "description": "You have been invited to join a group chat",
+      "invitedBy": "{{name}} invited you to join",
+      "memberCount": "{{count}} members",
+      "join": "Join Group Chat",
+      "joining": "Joining...",
+      "joinSuccess": "Successfully joined the group chat!",
+      "joinFailed": "Failed to join group chat",
+      "alreadyMember": "You are already a member",
+      "invalidLink": "Invalid or expired invite link"
+    },
+    "members": {
+      "title": "Group Members",
+      "inviteLink": "Invite Link",
+      "addMember": "Add Member",
+      "you": "You",
+      "invitedBy": "Invited by {{name}}",
+      "loadFailed": "Failed to load members",
+      "removeSuccess": "{{name}} has been removed",
+      "removeFailed": "Failed to remove member"
+    }
   }
 }

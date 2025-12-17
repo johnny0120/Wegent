@@ -13,6 +13,7 @@ from app.models.shared_team import SharedTeam
 from app.models.skill_binary import SkillBinary
 from app.models.subtask import Subtask
 from app.models.system_config import SystemConfig
+from app.models.task_member import TaskMember
 
 # Do NOT import Base here to avoid conflicts with app.db.base.Base
 # All models should import Base directly from app.db.base
@@ -28,4 +29,5 @@ __all__ = [
     "Namespace",
     "NamespaceMember",
     "APIKey",
+    "TaskMember",
 ]

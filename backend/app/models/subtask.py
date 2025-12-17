@@ -28,6 +28,13 @@ class SubtaskRole(str, PyEnum):
     ASSISTANT = "ASSISTANT"
 
 
+class SenderType(str, PyEnum):
+    """Sender type for group chat messages"""
+
+    USER = "USER"  # Message sent by a user
+    TEAM = "TEAM"  # Message sent by the AI team/agent
+
+
 class Subtask(Base):
     __tablename__ = "subtasks"
 
@@ -53,6 +60,11 @@ class Subtask(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     completed_at = Column(DateTime)
+
+    # Group chat fields
+    sender_type = Column(SQLEnum(SenderType), nullable=True)  # USER or TEAM
+    sender_user_id = Column(Integer, nullable=True)  # User ID when sender_type=USER
+    reply_to_subtask_id = Column(Integer, nullable=True)  # Quoted message ID
 
     # Relationship to SubtaskAttachment (no foreign key constraint, use primaryjoin)
     attachments = relationship(
