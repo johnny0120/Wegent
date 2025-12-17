@@ -867,28 +867,44 @@ After each round of user answers:
     from fastapi.responses import StreamingResponse
 
     async def generate_with_ids():
-        # Send first message with IDs
-        first_msg = {
-            "task_id": task.id,
-            "subtask_id": assistant_subtask.id,
-            "content": "",
-            "done": False,
-        }
-        yield f"data: {json.dumps(first_msg)}\n\n"
+        # Set task-level streaming status for group chat
+        task_json = task.json or {}
+        is_group_chat = task_json.get("spec", {}).get("is_group_chat", False)
+        if is_group_chat:
+            await session_manager.set_task_streaming_status(
+                task_id=task.id,
+                subtask_id=assistant_subtask.id,
+                user_id=current_user.id,
+                username=current_user.user_name,
+            )
 
-        # Get the actual stream from chat service (use final_message with attachment content)
-        stream_response = await chat_service.chat_stream(
-            subtask_id=assistant_subtask.id,
-            task_id=task.id,
-            message=final_message,
-            model_config=model_config,
-            system_prompt=system_prompt,
-            tools=tools,
-        )
+        try:
+            # Send first message with IDs
+            first_msg = {
+                "task_id": task.id,
+                "subtask_id": assistant_subtask.id,
+                "content": "",
+                "done": False,
+            }
+            yield f"data: {json.dumps(first_msg)}\n\n"
 
-        # Forward the stream
-        async for chunk in stream_response.body_iterator:
-            yield chunk
+            # Get the actual stream from chat service (use final_message with attachment content)
+            stream_response = await chat_service.chat_stream(
+                subtask_id=assistant_subtask.id,
+                task_id=task.id,
+                message=final_message,
+                model_config=model_config,
+                system_prompt=system_prompt,
+                tools=tools,
+            )
+
+            # Forward the stream
+            async for chunk in stream_response.body_iterator:
+                yield chunk
+        finally:
+            # Clear task-level streaming status when done
+            if is_group_chat:
+                await session_manager.clear_task_streaming_status(task.id)
 
     return StreamingResponse(
         generate_with_ids(),
