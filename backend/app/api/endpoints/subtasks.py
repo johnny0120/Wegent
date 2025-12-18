@@ -89,7 +89,9 @@ def delete_subtask(
 @router.get("/tasks/{task_id}/messages/poll", response_model=PollMessagesResponse)
 async def poll_new_messages(
     task_id: int,
-    last_subtask_id: Optional[int] = Query(None, description="Last subtask ID received"),
+    last_subtask_id: Optional[int] = Query(
+        None, description="Last subtask ID received"
+    ),
     since: Optional[str] = Query(None, description="ISO timestamp to filter messages"),
     current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
@@ -158,9 +160,11 @@ async def get_streaming_status(
         started_by_user_id=streaming_status.get("user_id"),
         started_by_username=streaming_status.get("username"),
         current_content=current_content,
-        started_at=datetime.fromisoformat(streaming_status.get("started_at"))
-        if streaming_status.get("started_at")
-        else None,
+        started_at=(
+            datetime.fromisoformat(streaming_status.get("started_at"))
+            if streaming_status.get("started_at")
+            else None
+        ),
     )
 
 
@@ -268,4 +272,3 @@ async def subscribe_group_stream(
             await redis_client.aclose()
 
     return EventSourceResponse(event_generator())
-

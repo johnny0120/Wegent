@@ -237,22 +237,21 @@ class SubtaskService(BaseService[Subtask, SubtaskCreate, SubtaskUpdate]):
         Returns:
             List of subtask dictionaries with sender information
         """
-        from app.services.task_member_service import task_member_service
         from app.models.user import User
+        from app.services.task_member_service import task_member_service
 
         # Check if user is a member of this task
         is_member = task_member_service.is_member(db, task_id, user_id)
         if not is_member:
-            raise HTTPException(status_code=403, detail="Not authorized to access this task")
+            raise HTTPException(
+                status_code=403, detail="Not authorized to access this task"
+            )
 
         # Build query
-        query = db.query(
-            Subtask,
-            User.user_name.label("sender_username")
-        ).outerjoin(
-            User, Subtask.sender_user_id == User.id
-        ).filter(
-            Subtask.task_id == task_id
+        query = (
+            db.query(Subtask, User.user_name.label("sender_username"))
+            .outerjoin(User, Subtask.sender_user_id == User.id)
+            .filter(Subtask.task_id == task_id)
         )
 
         # Apply filters
@@ -261,8 +260,9 @@ class SubtaskService(BaseService[Subtask, SubtaskCreate, SubtaskUpdate]):
 
         if since:
             from datetime import datetime
+
             try:
-                since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
                 query = query.filter(Subtask.created_at > since_dt)
             except ValueError:
                 pass  # Ignore invalid timestamp
@@ -292,17 +292,25 @@ class SubtaskService(BaseService[Subtask, SubtaskCreate, SubtaskUpdate]):
                 "progress": subtask.progress,
                 "result": subtask.result,
                 "error_message": subtask.error_message,
+                "sender_type": (
+                    subtask.sender_type.value if subtask.sender_type else None
+                ),
+                "sender_user_id": subtask.sender_user_id,
+                "sender_username": sender_username,
+                "created_at": (
+                    subtask.created_at.isoformat() if subtask.created_at else None
+                ),
+                "updated_at": (
+                    subtask.updated_at.isoformat() if subtask.updated_at else None
+                ),
+                "completed_at": (
+                    subtask.completed_at.isoformat() if subtask.completed_at else None
+                ),
                 "user_id": subtask.user_id,
-                "created_at": subtask.created_at.isoformat() if subtask.created_at else None,
-                "updated_at": subtask.updated_at.isoformat() if subtask.updated_at else None,
-                "completed_at": subtask.completed_at.isoformat() if subtask.completed_at else None,
                 "executor_deleted_at": subtask.executor_deleted_at,
                 "attachments": [],  # Attachments not loaded in this query for performance
-                "sender_type": subtask.sender_type.value if subtask.sender_type else None,
-                "sender_user_id": subtask.sender_user_id,
                 "sender_user_name": sender_username,
                 "reply_to_subtask_id": subtask.reply_to_subtask_id,
-                "sender_username": sender_username,
             }
             messages.append(message_dict)
 
