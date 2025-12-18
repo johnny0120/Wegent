@@ -202,7 +202,7 @@ async def _create_task_and_subtasks(
                 Kind.kind == "Bot",
                 Kind.name == member.botRef.name,
                 Kind.namespace == member.botRef.namespace,
-                Kind.is_active == True,
+                Kind.is_active,
             )
             .first()
         )
@@ -224,7 +224,7 @@ async def _create_task_and_subtasks(
                 Kind.id == task_id,
                 Kind.user_id == user.id,
                 Kind.kind == "Task",
-                Kind.is_active == True,
+                Kind.is_active,
             )
             .first()
         )
@@ -250,7 +250,7 @@ async def _create_task_and_subtasks(
                     .filter(
                         Kind.id == task_id,
                         Kind.kind == "Task",
-                        Kind.is_active == True,
+                        Kind.is_active,
                     )
                     .first()
                 )
@@ -386,7 +386,7 @@ async def _create_task_and_subtasks(
         user_id=subtask_user_id,  # Use task owner's ID for group chats
         task_id=task_id,
         team_id=team.id,
-        title=f"User message",
+        title="User message",
         bot_ids=bot_ids,
         role=SubtaskRole.USER,
         executor_namespace="",
@@ -413,7 +413,7 @@ async def _create_task_and_subtasks(
             user_id=subtask_user_id,  # Use task owner's ID for group chats
             task_id=task_id,
             team_id=team.id,
-            title=f"Assistant response",
+            title="Assistant response",
             bot_ids=bot_ids,
             role=SubtaskRole.ASSISTANT,
             executor_namespace="",
@@ -598,22 +598,61 @@ async def stream_chat(
     team_name = team.name
 
     if request.task_id:
-        # Get existing task
+        # Get existing task - first try as owner
         task_kind = (
             db.query(Kind)
             .filter(
                 Kind.id == request.task_id,
+                Kind.user_id == current_user.id,
                 Kind.kind == "Task",
-                Kind.is_active == True,
+                Kind.is_active,
             )
             .first()
         )
+
+        # If not found as owner, check if user is a group chat member
+        if not task_kind:
+            from app.models.task_member import MemberStatus, TaskMember
+
+            member = (
+                db.query(TaskMember)
+                .filter(
+                    TaskMember.task_id == request.task_id,
+                    TaskMember.user_id == current_user.id,
+                    TaskMember.status == MemberStatus.ACTIVE,
+                )
+                .first()
+            )
+
+            if member:
+                # User is a group member, get task without user_id check
+                task_kind = (
+                    db.query(Kind)
+                    .filter(
+                        Kind.id == request.task_id,
+                        Kind.kind == "Task",
+                        Kind.is_active,
+                    )
+                    .first()
+                )
+
+        # If task found, get its JSON
         if task_kind:
             task_json = task_kind.json or {}
 
     # Check if AI should be triggered (for group chat with @mention)
     should_trigger_ai = _should_trigger_ai_response(
         task_json, request.message, team_name
+    )
+    logger.info(
+        f"Group chat check: task_id={request.task_id}, "
+        f"task_kind_found={task_kind is not None}, "
+        f"task_json_spec={task_json.get('spec', {})}, "
+        f"is_group_chat={task_json.get('spec', {}).get('is_group_chat', False)}, "
+        f"team_name={team_name}, "
+        f"message_preview={request.message[:50] if request.message else ''}, "
+        f"message_contains_mention={'@' + team_name in request.message}, "
+        f"should_trigger_ai={should_trigger_ai}"
     )
 
     # Create task and subtasks (use original message for storage, final_message for LLM)
@@ -906,6 +945,7 @@ After each round of user answers:
                 model_config=model_config,
                 system_prompt=system_prompt,
                 tools=tools,
+                is_group_chat=is_group_chat,
             )
 
             # Forward the stream

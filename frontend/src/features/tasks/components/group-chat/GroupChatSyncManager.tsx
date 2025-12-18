@@ -64,8 +64,6 @@ export function GroupChatSyncManager({
     taskId,
     isGroupChat,
     enabled,
-    pollingDelay: 1000, // 1 second delay after each response
-    pollingTimeout: 5000, // 5 second timeout
     onNewMessages,
     onStreamingDetected: subtaskId => {
       console.log('[GroupChatSync] Stream detected:', subtaskId);

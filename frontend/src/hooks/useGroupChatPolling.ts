@@ -13,8 +13,8 @@ interface UseGroupChatPollingOptions {
   taskId: number;
   isGroupChat: boolean;
   enabled?: boolean;
-  pollingDelay?: number; // delay after response before next poll, in milliseconds, default 1000
-  pollingTimeout?: number; // timeout for each poll request, in milliseconds, default 5000
+  pollingDelay?: number; // delay after response before next poll, in milliseconds, default 5000
+  pollingTimeout?: number; // timeout for each poll request, in milliseconds, default 10000
   onNewMessages?: (messages: SubtaskWithSender[]) => void;
   onStreamingDetected?: (subtaskId: number) => void;
 }
@@ -31,8 +31,8 @@ interface UseGroupChatPollingResult {
 /**
  * Hook for polling new messages in group chat
  *
- * Polls the backend with a delay after each response (default 1 second).
- * If a request times out (default 5 seconds), it will continue with the next poll.
+ * Polls the backend with a delay after each response (default 5 seconds).
+ * If a request times out (default 10 seconds), it will continue with the next poll.
  * Automatically tracks the last received subtask ID and only fetches incremental updates.
  *
  * @param options - Configuration options
@@ -45,8 +45,8 @@ export function useGroupChatPolling(
     taskId,
     isGroupChat,
     enabled = true,
-    pollingDelay = 1000,
-    pollingTimeout = 5000,
+    pollingDelay = 5000,
+    pollingTimeout = 10000,
     onNewMessages,
     onStreamingDetected,
   } = options;

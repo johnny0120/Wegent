@@ -7,6 +7,7 @@
  */
 
 import client from './client';
+import { getToken } from './user';
 
 /**
  * Subtask with sender information
@@ -102,12 +103,23 @@ export function subscribeGroupStream(
   subtaskId: number,
   offset: number = 0
 ): EventSource {
+  // Get auth token from localStorage
+  const token = getToken();
+
   const params = new URLSearchParams({
+    task_id: taskId.toString(),
     subtask_id: subtaskId.toString(),
     offset: offset.toString(),
   });
 
-  const url = `/api/subtasks/tasks/${taskId}/stream/subscribe?${params.toString()}`;
+  // Pass token as query parameter since EventSource doesn't support custom headers
+  if (token) {
+    params.append('token', token);
+  }
+
+  // Use the Next.js API route proxy which reads token from query parameter
+  // and forwards it as Authorization header to the backend
+  const url = `/api/subtasks/stream/subscribe?${params.toString()}`;
 
   return new EventSource(url, {
     withCredentials: true,
