@@ -59,6 +59,8 @@ export interface Message {
   senderUserName?: string;
   /** Group chat: sender user ID (for determining message alignment) */
   senderUserId?: number;
+  /** Whether this is a group chat or chat agent type (to show sender names) */
+  shouldShowSender?: boolean;
 }
 
 // CopyButton component for copying markdown content
@@ -1303,13 +1305,16 @@ const MessageBubble = memo(
                 {timestampLabel && <span>{timestampLabel}</span>}
               </div>
             )}
-            {/* Show sender user name for current user's messages (right-aligned) in group chat */}
-            {isUserTypeMessage && shouldAlignRight && msg.senderUserName && (
-              <div className="flex items-center gap-2 mb-2 text-xs opacity-80">
-                <span className="font-semibold">{msg.senderUserName}</span>
-                {timestampLabel && <span>{timestampLabel}</span>}
-              </div>
-            )}
+            {/* Show sender user name for current user's messages (right-aligned) in group chat or chat agent type */}
+            {isUserTypeMessage &&
+              shouldAlignRight &&
+              msg.senderUserName &&
+              msg.shouldShowSender && (
+                <div className="flex items-center gap-2 mb-2 text-xs opacity-80">
+                  <span className="font-semibold">{msg.senderUserName}</span>
+                  {timestampLabel && <span>{timestampLabel}</span>}
+                </div>
+              )}
             {isUserTypeMessage && renderAttachments(msg.attachments)}
             {/* Show waiting indicator when streaming but no content yet */}
             {isWaiting || msg.isWaiting ? (

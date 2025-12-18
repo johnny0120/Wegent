@@ -609,7 +609,7 @@ async def stream_chat(
             )
             .first()
         )
-        
+
         # If not found as owner, check if user is a group chat member
         if not task_kind:
             from app.models.task_member import MemberStatus, TaskMember
@@ -635,14 +635,15 @@ async def stream_chat(
                     )
                     .first()
                 )
-        
+
         # If task found, get its JSON
         if task_kind:
             task_json = task_kind.json or {}
 
     # Check if AI should be triggered (for group chat with @mention)
-    should_trigger_ai = _should_trigger_ai_response(task_json, request.message, team_name)
-    
+    should_trigger_ai = _should_trigger_ai_response(
+        task_json, request.message, team_name
+    )
     logger.info(
         f"Group chat check: task_id={request.task_id}, "
         f"task_kind_found={task_kind is not None}, "
@@ -672,6 +673,7 @@ async def stream_chat(
 
     # If AI not triggered, return early with message saved response
     if not ai_triggered:
+
         async def no_ai_response():
             yield f"data: {json.dumps({'task_id': task.id, 'subtask_id': user_subtask.id, 'content': '', 'done': True, 'ai_triggered': False, 'message': 'Message saved without AI response'})}\n\n"
 
@@ -1012,11 +1014,7 @@ async def _handle_resume_stream(
     # If not found as owner, check if user is a group chat member
     if not subtask:
         # First get the subtask without user_id filter to check task membership
-        subtask_any = (
-            db.query(Subtask)
-            .filter(Subtask.id == subtask_id)
-            .first()
-        )
+        subtask_any = db.query(Subtask).filter(Subtask.id == subtask_id).first()
 
         if subtask_any:
             # Check if user is a group chat member for this task
@@ -1446,11 +1444,7 @@ async def get_streaming_content(
     # If not found as owner, check if user is a group chat member
     if not subtask:
         # First get the subtask without user_id filter to check task membership
-        subtask_any = (
-            db.query(Subtask)
-            .filter(Subtask.id == subtask_id)
-            .first()
-        )
+        subtask_any = db.query(Subtask).filter(Subtask.id == subtask_id).first()
 
         if subtask_any:
             # Check if user is a group chat member for this task
@@ -1547,11 +1541,7 @@ async def resume_stream(
     # If not found as owner, check if user is a group chat member
     if not subtask:
         # First get the subtask without user_id filter to check task membership
-        subtask_any = (
-            db.query(Subtask)
-            .filter(Subtask.id == subtask_id)
-            .first()
-        )
+        subtask_any = db.query(Subtask).filter(Subtask.id == subtask_id).first()
 
         if subtask_any:
             # Check if user is a group chat member for this task
