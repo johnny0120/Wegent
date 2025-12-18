@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     CHAT_HISTORY_EXPIRE_SECONDS: int = 7200  # Chat history expiration (2 hours)
     CHAT_HISTORY_MAX_MESSAGES: int = 50  # Maximum messages to keep in history
     CHAT_API_TIMEOUT_SECONDS: int = 300  # LLM API call timeout (5 minutes)
-    
+
     # Group chat history configuration
     # In group chat mode, AI-bot sees: first N messages + last M messages (no duplicates)
     # If total messages < N + M, all messages are kept
