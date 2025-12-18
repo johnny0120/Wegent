@@ -244,6 +244,7 @@ export interface TaskDetail {
   subtasks: TaskDetailSubtask[];
   workbench?: WorkbenchData | null;
   model_id?: string | null; // Model name used for this task
+  is_group_chat?: boolean; // Whether this is a group chat task
 }
 
 /** Subtask result structure */
