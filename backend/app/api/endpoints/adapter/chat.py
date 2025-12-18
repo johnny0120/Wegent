@@ -872,6 +872,8 @@ After each round of user answers:
     from fastapi.responses import StreamingResponse
 
     async def generate_with_ids():
+        from app.services.chat.session_manager import session_manager
+
         # Set task-level streaming status for group chat
         task_json = task.json or {}
         is_group_chat = task_json.get("spec", {}).get("is_group_chat", False)
@@ -935,7 +937,7 @@ async def _handle_resume_stream(
     Handle resume/reconnect stream request with offset-based continuation.
 
     This function implements the offset-based streaming protocol:
-    1. Verify subtask ownership and status
+    1. Verify subtask ownership/membership and status
     2. Get cached content from Redis/DB
     3. Send content from offset position onwards
     4. Subscribe to Pub/Sub for real-time updates
@@ -954,9 +956,10 @@ async def _handle_resume_stream(
 
     from fastapi.responses import StreamingResponse
 
+    from app.models.task_member import MemberStatus, TaskMember
     from app.services.chat.session_manager import session_manager
 
-    # Verify subtask ownership
+    # Verify subtask ownership first
     subtask = (
         db.query(Subtask)
         .filter(
@@ -965,6 +968,31 @@ async def _handle_resume_stream(
         )
         .first()
     )
+
+    # If not found as owner, check if user is a group chat member
+    if not subtask:
+        # First get the subtask without user_id filter to check task membership
+        subtask_any = (
+            db.query(Subtask)
+            .filter(Subtask.id == subtask_id)
+            .first()
+        )
+
+        if subtask_any:
+            # Check if user is a group chat member for this task
+            member = (
+                db.query(TaskMember)
+                .filter(
+                    TaskMember.task_id == subtask_any.task_id,
+                    TaskMember.user_id == current_user.id,
+                    TaskMember.status == MemberStatus.ACTIVE,
+                )
+                .first()
+            )
+
+            if member:
+                # User is a group member, allow access
+                subtask = subtask_any
 
     if not subtask:
         raise HTTPException(status_code=404, detail="Subtask not found")
@@ -1363,7 +1391,9 @@ async def get_streaming_content(
             "incomplete": bool        # Whether content is incomplete (client disconnected)
         }
     """
-    # Verify subtask ownership
+    from app.models.task_member import MemberStatus, TaskMember
+
+    # Verify subtask ownership first
     subtask = (
         db.query(Subtask)
         .filter(
@@ -1372,6 +1402,31 @@ async def get_streaming_content(
         )
         .first()
     )
+
+    # If not found as owner, check if user is a group chat member
+    if not subtask:
+        # First get the subtask without user_id filter to check task membership
+        subtask_any = (
+            db.query(Subtask)
+            .filter(Subtask.id == subtask_id)
+            .first()
+        )
+
+        if subtask_any:
+            # Check if user is a group chat member for this task
+            member = (
+                db.query(TaskMember)
+                .filter(
+                    TaskMember.task_id == subtask_any.task_id,
+                    TaskMember.user_id == current_user.id,
+                    TaskMember.status == MemberStatus.ACTIVE,
+                )
+                .first()
+            )
+
+            if member:
+                # User is a group member, allow access
+                subtask = subtask_any
 
     if not subtask:
         raise HTTPException(status_code=404, detail="Subtask not found")
@@ -1422,7 +1477,7 @@ async def resume_stream(
     streaming content from an ongoing Chat Shell task, similar to OpenAI's implementation.
 
     Flow:
-    1. Verify subtask ownership and status (must be RUNNING)
+    1. Verify subtask ownership/membership and status (must be RUNNING)
     2. Send cached content from Redis immediately
     3. Subscribe to Redis Pub/Sub channel for real-time updates
     4. Continue streaming new content as it arrives
@@ -1437,7 +1492,9 @@ async def resume_stream(
 
     from fastapi.responses import StreamingResponse
 
-    # Verify subtask ownership
+    from app.models.task_member import MemberStatus, TaskMember
+
+    # Verify subtask ownership first
     subtask = (
         db.query(Subtask)
         .filter(
@@ -1446,6 +1503,31 @@ async def resume_stream(
         )
         .first()
     )
+
+    # If not found as owner, check if user is a group chat member
+    if not subtask:
+        # First get the subtask without user_id filter to check task membership
+        subtask_any = (
+            db.query(Subtask)
+            .filter(Subtask.id == subtask_id)
+            .first()
+        )
+
+        if subtask_any:
+            # Check if user is a group chat member for this task
+            member = (
+                db.query(TaskMember)
+                .filter(
+                    TaskMember.task_id == subtask_any.task_id,
+                    TaskMember.user_id == current_user.id,
+                    TaskMember.status == MemberStatus.ACTIVE,
+                )
+                .first()
+            )
+
+            if member:
+                # User is a group member, allow access
+                subtask = subtask_any
 
     if not subtask:
         raise HTTPException(status_code=404, detail="Subtask not found")
