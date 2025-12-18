@@ -945,6 +945,7 @@ After each round of user answers:
                 model_config=model_config,
                 system_prompt=system_prompt,
                 tools=tools,
+                is_group_chat=is_group_chat,
             )
 
             # Forward the stream
