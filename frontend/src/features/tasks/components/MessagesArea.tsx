@@ -621,15 +621,9 @@ export default function MessagesArea({
   );
 
   // Check if pending user message is already in displayMessages (to avoid duplication)
-  // Check if pending user message is already in displayMessages (to avoid duplication)
   // This happens when refreshTasks() is called and the backend returns the message
   const isPendingMessageAlreadyDisplayed = useMemo(() => {
     if (!pendingUserMessage) return false;
-
-    // IMPORTANT: Don't hide pending message while streaming is active
-    // The user message subtask might be filtered out by streamingSubtaskId logic,
-    // so we need to keep showing the pending message until streaming completes
-    if (isStreaming) return false;
 
     // Check if ANY user message in displayMessages matches the pending message
     // This handles the case where the message might not be the last one
@@ -648,8 +642,11 @@ export default function MessagesArea({
       return false;
     });
 
+    // If the message is already displayed in displayMessages, hide the pending message
+    // This prevents duplicate bubbles in group chat scenarios where the backend
+    // returns the user message quickly while AI is still streaming
     return isDisplayed;
-  }, [displayMessages, pendingUserMessage, isStreaming]);
+  }, [displayMessages, pendingUserMessage]);
   // Check if streaming content is already in displayMessages (to avoid duplication)
   // This happens when the stream completes and the backend returns the AI response
   const isStreamingContentAlreadyDisplayed = useMemo(() => {
@@ -939,25 +936,62 @@ export default function MessagesArea({
 
           {/* Pending user message (optimistic update) - only show if not already in displayMessages */}
           {/* Use MessageBubble to ensure proper rendering of special formats like ClarificationAnswerSummary */}
-          {pendingUserMessage && !isPendingMessageAlreadyDisplayed && (
-            <MessageBubble
-              key="pending-user-message"
-              msg={{
-                type: 'user',
+          {/* In group chat, wrap with GroupChatMessageWrapper to show sender name consistently */}
+          {pendingUserMessage &&
+            !isPendingMessageAlreadyDisplayed &&
+            (() => {
+              const pendingMsg = {
+                type: 'user' as const,
                 content: pendingUserMessage,
                 timestamp: Date.now(),
                 attachments: pendingAttachment ? [pendingAttachment] : undefined,
-              }}
-              index={displayMessages.length}
-              selectedTaskDetail={selectedTaskDetail}
-              selectedTeam={selectedTeam}
-              selectedRepo={selectedRepo}
-              selectedBranch={selectedBranch}
-              theme={theme as 'light' | 'dark'}
-              t={t}
-              onSendMessage={onSendMessage}
-            />
-          )}
+                // In group chat, add sender info for the pending message
+                senderUserName: isGroupChat ? user?.user_name : undefined,
+                senderUserId: isGroupChat ? user?.id : undefined,
+              };
+
+              const messageBubble = (
+                <MessageBubble
+                  key="pending-user-message"
+                  msg={pendingMsg}
+                  index={displayMessages.length}
+                  selectedTaskDetail={selectedTaskDetail}
+                  selectedTeam={selectedTeam}
+                  selectedRepo={selectedRepo}
+                  selectedBranch={selectedBranch}
+                  theme={theme as 'light' | 'dark'}
+                  t={t}
+                  onSendMessage={onSendMessage}
+                  // In group chat, current user's pending message should still be right-aligned
+                  isCurrentUserMessage={true}
+                />
+              );
+
+              // In group chat, wrap with GroupChatMessageWrapper to show sender name
+              // This ensures consistent appearance with messages from displayMessages
+              if (isGroupChat && user) {
+                // Create a mock subtask for the wrapper
+                const mockSubtask = {
+                  id: -1,
+                  role: 'USER' as const,
+                  sender_type: 'USER' as const,
+                  sender_user_id: user.id,
+                  sender_user_name: user.user_name,
+                } as unknown as TaskDetailSubtask;
+
+                return (
+                  <GroupChatMessageWrapper
+                    key="pending-user-message-wrapper"
+                    subtask={mockSubtask}
+                    isGroupChat={true}
+                  >
+                    {messageBubble}
+                  </GroupChatMessageWrapper>
+                );
+              }
+
+              return messageBubble;
+            })()}
 
           {/* Streaming AI response - use MessageBubble component for consistency */}
           {/* Show waiting indicator inside MessageBubble when streaming but no content yet */}
