@@ -25,6 +25,7 @@ import {
   RotateCw,
   Code2,
   MessageSquare,
+  Users,
 } from 'lucide-react';
 import { useTaskContext } from '@/features/tasks/contexts/taskContext';
 import { useChatStreamContext } from '@/features/tasks/contexts/chatStreamContext';
@@ -67,6 +68,7 @@ export default function TaskSidebar({
     getUnreadCount,
     markAllTasksAsViewed,
     viewStatusVersion,
+    setSelectedTask,
   } = useTaskContext();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
@@ -238,6 +240,11 @@ export default function TaskSidebar({
       }
     }
 
+    // Show group chat icon for group chats
+    if (task.is_group_chat) {
+      return <Users className="w-3.5 h-3.5 text-text-muted" />;
+    }
+
     if (taskType === 'code') {
       return <Code2 className="w-3.5 h-3.5 text-text-muted" />;
     } else {
@@ -285,6 +292,10 @@ export default function TaskSidebar({
 
   // New conversation - always navigate to chat page
   const handleNewAgentClick = () => {
+    // IMPORTANT: Clear selected task FIRST to ensure UI state is reset immediately
+    // This prevents the UI from being stuck showing the previous task's messages
+    setSelectedTask(null);
+
     // Clear all stream states to reset the chat area to initial state
     clearAllStreams();
 
@@ -299,6 +310,9 @@ export default function TaskSidebar({
   // Handle navigation button click - for code mode, clear streams to create new task
   const handleNavigationClick = (path: string, isActive: boolean) => {
     if (isActive) {
+      // IMPORTANT: Clear selected task FIRST to ensure UI state is reset immediately
+      setSelectedTask(null);
+
       // If already on this page, clear streams to create new task
       clearAllStreams();
       router.replace(path);
@@ -379,36 +393,86 @@ export default function TaskSidebar({
         </div>
       </div>
 
-      {/* New Conversation Button - always shows "New Conversation" and navigates to chat */}
-      <div className="px-1 mb-0">
-        {isCollapsed ? (
-          <TooltipProvider>
-            <Tooltip delayDuration={300}>
-              <TooltipTrigger asChild>
+      {/* New Conversation Button and Navigation Buttons - wrapped together for onboarding tour */}
+      <div data-tour="mode-toggle">
+        {/* New Conversation Button - always shows "New Conversation" and navigates to chat */}
+        <div className="px-1 mb-0">
+          {isCollapsed ? (
+            <TooltipProvider>
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    onClick={handleNewAgentClick}
+                    className="w-full justify-center p-2 h-auto min-h-[44px] text-text-primary hover:bg-hover rounded-xl"
+                    aria-label={t('tasks.new_conversation')}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>{t('tasks.new_conversation')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Button
+              variant="ghost"
+              onClick={handleNewAgentClick}
+              className="w-full justify-start px-2 py-1.5 h-8 text-sm text-text-primary hover:bg-hover rounded-xl"
+              size="sm"
+            >
+              <Plus className="h-4 w-4 mr-0.5" />
+              {t('tasks.new_conversation')}
+            </Button>
+          )}
+        </div>
+
+        {/* Navigation Buttons - hide in collapsed mode */}
+        {!isCollapsed && navigationButtons.length > 0 && (
+          <div className="px-1 mb-2">
+            {navigationButtons.map(btn => (
+              <div key={btn.path} className="relative group">
                 <Button
                   variant="ghost"
-                  onClick={handleNewAgentClick}
-                  className="w-full justify-center p-2 h-auto min-h-[44px] text-text-primary hover:bg-hover rounded-xl"
-                  aria-label={t('tasks.new_conversation')}
+                  onClick={() => handleNavigationClick(btn.path, btn.isActive)}
+                  className={`w-full justify-start px-2 py-1.5 h-8 text-sm rounded-xl transition-colors ${
+                    btn.isActive
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-text-primary hover:bg-hover'
+                  }`}
+                  size="sm"
                 >
-                  <Plus className="h-4 w-4" />
+                  <btn.icon className={`h-4 w-4 mr-0.5 ${btn.isActive ? 'text-primary' : ''}`} />
+                  {btn.label}
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>{t('tasks.new_conversation')}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ) : (
-          <Button
-            variant="ghost"
-            onClick={handleNewAgentClick}
-            className="w-full justify-start px-2 py-1.5 h-8 text-sm text-text-primary hover:bg-hover rounded-xl"
-            size="sm"
-          >
-            <Plus className="h-4 w-4 mr-0.5" />
-            {t('tasks.new_conversation')}
-          </Button>
+                {/* Show "New Task" button on hover when in code mode */}
+                {btn.isActive && btn.tooltip && (
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <TooltipProvider>
+                      <Tooltip delayDuration={0}>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleNavigationClick(btn.path, btn.isActive);
+                            }}
+                            className="flex items-center gap-1 px-1.5 py-0.5 text-xs bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                          >
+                            <Plus className="h-3 w-3" />
+                            <span>{t('tasks.new_task')}</span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p>{btn.tooltip}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -524,89 +588,22 @@ export default function TaskSidebar({
         </DialogContent>
       </Dialog>
 
-      {/* Navigation Buttons - hide in collapsed mode */}
-      {!isCollapsed && navigationButtons.length > 0 && (
-        <div className="px-1 mb-2">
-          {navigationButtons.map(btn => (
-            <div key={btn.path} className="relative group">
-              <Button
-                variant="ghost"
-                onClick={() => handleNavigationClick(btn.path, btn.isActive)}
-                className={`w-full justify-start px-2 py-1.5 h-8 text-sm rounded-xl transition-colors ${
-                  btn.isActive
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-text-primary hover:bg-hover'
-                }`}
-                size="sm"
-              >
-                <btn.icon className={`h-4 w-4 mr-0.5 ${btn.isActive ? 'text-primary' : ''}`} />
-                {btn.label}
-              </Button>
-              {/* Show "New Task" button on hover when in code mode */}
-              {btn.isActive && btn.tooltip && (
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <TooltipProvider>
-                    <Tooltip delayDuration={0}>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleNavigationClick(btn.path, btn.isActive);
-                          }}
-                          className="flex items-center gap-1 px-1.5 py-0.5 text-xs bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
-                        >
-                          <Plus className="h-3 w-3" />
-                          <span>{t('tasks.new_task')}</span>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">
-                        <p>{btn.tooltip}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Tasks Section */}
       <div
         className={`flex-1 ${isCollapsed ? 'px-0' : 'pl-2 pr-1'} pt-2 overflow-y-auto task-list-scrollbar border-t border-border`}
         ref={scrollRef}
       >
-        {/* History Title or Search Result Header */}
-        {!isCollapsed && !isSearchResult && (
-          <div className="px-1 pb-2 text-xs font-medium text-text-muted flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <span>{t('tasks.history_title')}</span>
-              <TooltipProvider>
-                <Tooltip delayDuration={300}>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={handleOpenSearchDialog}
-                      className="p-0.5 text-text-muted hover:text-text-primary transition-colors rounded"
-                      aria-label={t('tasks.search_placeholder_chat')}
-                    >
-                      <Search className="h-3.5 w-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{t('tasks.search_placeholder_chat')}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            {/* Mark All As Read Button - show only when there are unread tasks */}
-            {totalUnreadCount > 0 && (
-              <button
-                onClick={handleMarkAllAsViewed}
-                className="text-xs text-text-muted hover:text-text-primary transition-colors"
-              >
-                {t('tasks.mark_all_read')} ({totalUnreadCount})
-              </button>
-            )}
+        {/* Search Result Header */}
+        {!isCollapsed && isSearchResult && (
+          <div className="px-1 pb-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-text-muted">{t('tasks.search_results')}</span>
+            <button
+              onClick={handleClearSearch}
+              className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+            >
+              <X className="h-3 w-3" />
+              {t('tasks.clear_search')}
+            </button>
           </div>
         )}
         {/* Search Button for collapsed mode */}
@@ -630,18 +627,6 @@ export default function TaskSidebar({
             </TooltipProvider>
           </div>
         )}
-        {!isCollapsed && isSearchResult && (
-          <div className="px-1 pb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-text-muted">{t('tasks.search_results')}</span>
-            <button
-              onClick={handleClearSearch}
-              className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
-            >
-              <X className="h-3 w-3" />
-              {t('tasks.clear_search')}
-            </button>
-          </div>
-        )}
         {isSearching ? (
           <div className="text-center py-8 text-xs text-text-muted">{t('tasks.searching')}</div>
         ) : tasks.length === 0 ? (
@@ -649,15 +634,90 @@ export default function TaskSidebar({
             {isSearchResult ? t('tasks.no_search_results') : t('tasks.no_tasks')}
           </div>
         ) : (
-          <TaskListSection
-            tasks={tasks}
-            title=""
-            unreadCount={getUnreadCount(tasks)}
-            onTaskClick={() => setIsMobileSidebarOpen(false)}
-            isCollapsed={isCollapsed}
-            showTitle={false}
-            key={`tasks-${viewStatusVersion}`}
-          />
+          (() => {
+            // Separate group chats and regular tasks
+            const groupChats = tasks
+              .filter(task => task.is_group_chat)
+              .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+            const regularTasks = tasks
+              .filter(task => !task.is_group_chat)
+              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+            return (
+              <>
+                {/* Group Chats Section */}
+                {groupChats.length > 0 && (
+                  <>
+                    {!isCollapsed && (
+                      <div className="px-1 pb-1 text-xs font-medium text-text-muted">
+                        {t('tasks.group_chats')}
+                      </div>
+                    )}
+                    <TaskListSection
+                      tasks={groupChats}
+                      title=""
+                      unreadCount={getUnreadCount(groupChats)}
+                      onTaskClick={() => setIsMobileSidebarOpen(false)}
+                      isCollapsed={isCollapsed}
+                      showTitle={false}
+                      key={`group-chats-${viewStatusVersion}`}
+                    />
+                  </>
+                )}
+                {/* History Section - with search button next to title */}
+                {regularTasks.length > 0 && (
+                  <>
+                    {!isCollapsed && (
+                      <div
+                        className={`px-1 pb-1 text-xs font-medium text-text-muted flex items-center justify-between ${groupChats.length > 0 ? 'pt-3 mt-2 border-t border-border' : ''}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{t('tasks.history_title')}</span>
+                          <TooltipProvider>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={handleOpenSearchDialog}
+                                  className="p-0.5 text-text-muted hover:text-text-primary transition-colors rounded"
+                                  aria-label={t('tasks.search_placeholder_chat')}
+                                >
+                                  <Search className="h-3.5 w-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                <p>{t('tasks.search_placeholder_chat')}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        {/* Mark All As Read Button - show only when there are unread tasks */}
+                        {totalUnreadCount > 0 && (
+                          <button
+                            onClick={handleMarkAllAsViewed}
+                            className="text-xs text-text-muted hover:text-text-primary transition-colors"
+                          >
+                            {t('tasks.mark_all_read')} ({totalUnreadCount})
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {isCollapsed && groupChats.length > 0 && (
+                      <div className="border-t border-border my-2" />
+                    )}
+                    <TaskListSection
+                      tasks={regularTasks}
+                      title=""
+                      unreadCount={getUnreadCount(regularTasks)}
+                      onTaskClick={() => setIsMobileSidebarOpen(false)}
+                      isCollapsed={isCollapsed}
+                      showTitle={false}
+                      key={`regular-tasks-${viewStatusVersion}`}
+                    />
+                  </>
+                )}
+              </>
+            );
+          })()
         )}
         {loadingMore && (
           <div className="text-center py-2 text-xs text-text-muted">{t('tasks.loading')}</div>

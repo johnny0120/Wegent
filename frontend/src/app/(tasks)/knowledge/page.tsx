@@ -19,6 +19,7 @@ import { saveLastTab } from '@/utils/userPreferences';
 import { useUser } from '@/features/common/UserContext';
 import { useIsMobile } from '@/features/layout/hooks/useMediaQuery';
 import { useChatStreamContext } from '@/features/tasks/contexts/chatStreamContext';
+import { useTaskContext } from '@/features/tasks/contexts/taskContext';
 import { paths } from '@/config/paths';
 import {
   WikiProjectList,
@@ -28,6 +29,7 @@ import {
   SearchBox,
   KnowledgeTabs,
   KnowledgeTabType,
+  KnowledgeDocumentPage,
 } from '@/features/knowledge';
 
 export default function KnowledgePage() {
@@ -35,6 +37,7 @@ export default function KnowledgePage() {
   const router = useRouter();
   const { user } = useUser();
   const { clearAllStreams } = useChatStreamContext();
+  const { setSelectedTask } = useTaskContext();
   const isMobile = useIsMobile();
 
   // Use shared Hook to manage all state and logic
@@ -126,6 +129,9 @@ export default function KnowledgePage() {
 
   // Handle new task from collapsed sidebar button
   const handleNewTask = () => {
+    // IMPORTANT: Clear selected task FIRST to ensure UI state is reset immediately
+    // This prevents the UI from being stuck showing the previous task's messages
+    setSelectedTask(null);
     clearAllStreams();
     router.replace(paths.wiki.getHref());
   };
@@ -194,11 +200,7 @@ export default function KnowledgePage() {
             </>
           )}
 
-          {activeTab === 'document' && (
-            <div className="flex items-center justify-center h-full text-text-muted">
-              <p>{t('common.coming_soon')}</p>
-            </div>
-          )}
+          {activeTab === 'document' && <KnowledgeDocumentPage />}
         </div>
       </div>
 

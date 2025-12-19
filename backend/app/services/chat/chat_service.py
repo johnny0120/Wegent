@@ -55,12 +55,13 @@ class ChatService(ChatServiceBase):
 
     async def chat_stream(
         self,
-        subtask_id: int,
-        task_id: int,
         message: str | dict[str, Any],
         model_config: dict[str, Any],
         system_prompt: str = "",
         tools: list[Tool] | None = None,
+        subtask_id: int | None = None,
+        task_id: int | None = None,
+        is_group_chat: bool = False,
     ) -> StreamingResponse:
         """
         Stream chat response from LLM API with tool calling support.
@@ -69,17 +70,29 @@ class ChatService(ChatServiceBase):
         and CHAT_MCP_SERVERS is configured. MCP sessions are managed per-task
         and cleaned up when the stream ends.
 
+        When subtask_id and task_id are None, this method operates in "simple mode"
+        without database operations, session management, or MCP tools. This is useful
+        for lightweight streaming scenarios like wizard testing.
+
         Args:
-            subtask_id: The subtask ID
-            task_id: The task ID
             message: User message (string or dict with content)
             model_config: Model configuration dict
             system_prompt: System prompt for the conversation
             tools: Optional list of Tool instances (web search, etc.)
+            subtask_id: Optional subtask ID (None for simple mode)
+            task_id: Optional task ID (None for simple mode)
+            is_group_chat: Whether this is a group chat (uses special history truncation)
 
         Returns:
             StreamingResponse with SSE events
         """
+        # Simple mode: no database operations, no session management
+        is_simple_mode = subtask_id is None or task_id is None
+
+        if is_simple_mode:
+            return await self._simple_stream(message, model_config, system_prompt)
+
+        # Full mode: with database operations and session management
         semaphore = _get_chat_semaphore()
         chunk_queue: asyncio.Queue = asyncio.Queue()
         mcp_session = None
@@ -104,9 +117,31 @@ class ChatService(ChatServiceBase):
                 await db_handler.update_subtask_status(subtask_id, "RUNNING")
 
                 # Build messages and initialize components
-                history = await session_manager.get_chat_history(task_id)
+                if is_group_chat:
+                    # For group chat, get history from database with user names
+                    logger.info(
+                        f"[CHAT_STREAM] Getting group chat history for task_id={task_id}, "
+                        f"subtask_id={subtask_id}, is_group_chat={is_group_chat}"
+                    )
+                    history = await self._get_group_chat_history(task_id)
+                    logger.info(
+                        f"[CHAT_STREAM] Got history: count={len(history)}, "
+                        f"roles={[m.get('role') for m in history]}"
+                    )
+                    # Apply truncation: first N + last M messages
+                    history = self._truncate_group_chat_history(history, task_id)
+                    logger.info(f"[CHAT_STREAM] After truncation: count={len(history)}")
+                else:
+                    # For regular chat, get history from Redis
+                    history = await session_manager.get_chat_history(task_id)
+
                 messages = message_builder.build_messages(
                     history, message, system_prompt
+                )
+                logger.info(
+                    f"[CHAT_STREAM] Built messages: total={len(messages)}, "
+                    f"roles={[m.get('role') for m in messages]}, "
+                    f"current_message_preview={str(message)[:100]}..."
                 )
 
                 # Prepare all tools (passed tools + MCP tools)
@@ -155,6 +190,60 @@ class ChatService(ChatServiceBase):
                 # Cleanup MCP session when stream ends
                 if mcp_session:
                     await cleanup_mcp_session(task_id)
+
+        return StreamingResponse(
+            generate(), media_type="text/event-stream", headers=_SSE_HEADERS
+        )
+
+    async def _simple_stream(
+        self,
+        message: str | dict[str, Any],
+        model_config: dict[str, Any],
+        system_prompt: str = "",
+    ) -> StreamingResponse:
+        """
+        Simple streaming without database operations.
+
+        This is a lightweight streaming method for scenarios like wizard testing
+        where we don't need to persist messages or manage complex state.
+        """
+
+        async def generate() -> AsyncGenerator[str, None]:
+            cancel_event = asyncio.Event()
+
+            try:
+                # Build messages
+                messages = message_builder.build_messages(
+                    history=[],
+                    current_message=message,
+                    system_prompt=system_prompt,
+                )
+
+                # Get provider
+                client = await get_http_client()
+                provider = get_provider(model_config, client)
+                if not provider:
+                    yield _sse_data(
+                        {"error": "Failed to create provider from model config"}
+                    )
+                    return
+
+                # Stream response
+                async for chunk in provider.stream_chat(messages, cancel_event):
+                    if chunk.type == ChunkType.CONTENT and chunk.content:
+                        yield _sse_data({"content": chunk.content, "done": False})
+                    elif chunk.type == ChunkType.ERROR:
+                        yield _sse_data(
+                            {"error": chunk.error or "Unknown error from LLM"}
+                        )
+                        return
+
+                # Send done signal
+                yield _sse_data({"content": "", "done": True})
+
+            except Exception as e:
+                logger.error(f"Simple stream error: {e}")
+                yield _sse_data({"error": str(e)})
 
         return StreamingResponse(
             generate(), media_type="text/event-stream", headers=_SSE_HEADERS
@@ -294,6 +383,255 @@ class ChatService(ChatServiceBase):
         # Final request without tools to get the response
         async for chunk in provider.stream_chat(messages, cancel_event, tools=None):
             yield chunk
+
+    async def _get_group_chat_history(self, task_id: int) -> list[dict[str, Any]]:
+        """
+        Get chat history for group chat mode from database.
+
+        In group chat mode, we need to include user names in the messages
+        so the AI can distinguish between different users.
+
+        User messages are formatted as: "User[username]: message content"
+        The "User" prefix indicates that the content in brackets is a username.
+        Assistant messages remain unchanged.
+
+        For messages with attachments:
+        - Image attachments are included as vision content (base64 encoded)
+        - Document attachments have their extracted text prepended to the message
+
+        Args:
+            task_id: Task ID
+
+        Returns:
+            List of message dictionaries with role and content
+            Content can be a string or a list (for vision messages)
+        """
+        return await asyncio.to_thread(self._get_group_chat_history_sync, task_id)
+
+    def _get_group_chat_history_sync(self, task_id: int) -> list[dict[str, Any]]:
+        """Synchronous implementation of group chat history retrieval."""
+        from app.models.subtask import Subtask, SubtaskStatus
+        from app.models.user import User
+        from app.services.attachment import attachment_service
+        from app.services.chat.db_handler import _db_session
+
+        history: list[dict[str, Any]] = []
+        with _db_session() as db:
+            # Query all subtasks for this task (for debugging)
+            all_subtasks = (
+                db.query(Subtask)
+                .filter(Subtask.task_id == task_id)
+                .order_by(Subtask.message_id.asc())
+                .all()
+            )
+            logger.info(
+                f"[GROUP_CHAT_HISTORY] task_id={task_id}, "
+                f"total_subtasks={len(all_subtasks)}, "
+                f"subtask_details=[{', '.join([f'(id={s.id}, role={s.role.value}, status={s.status.value}, msg_id={s.message_id})' for s in all_subtasks])}]"
+            )
+
+            subtasks = (
+                db.query(Subtask, User.user_name)
+                .outerjoin(User, Subtask.sender_user_id == User.id)
+                .filter(
+                    Subtask.task_id == task_id,
+                    Subtask.status == SubtaskStatus.COMPLETED,
+                )
+                .order_by(Subtask.message_id.asc())
+                .all()
+            )
+
+            # Build completed details string separately to avoid f-string escaping issues
+            completed_details = ", ".join(
+                [
+                    f"(id={s.id}, role={s.role.value}, sender={u or 'N/A'})"
+                    for s, u in subtasks
+                ]
+            )
+            logger.info(
+                f"[GROUP_CHAT_HISTORY] task_id={task_id}, "
+                f"completed_subtasks={len(subtasks)}, "
+                f"completed_details=[{completed_details}]"
+            )
+
+            for subtask, sender_username in subtasks:
+                msg = self._build_history_message(
+                    db, subtask, sender_username, attachment_service
+                )
+                if msg:
+                    history.append(msg)
+                    logger.debug(
+                        f"[GROUP_CHAT_HISTORY] Added message: role={msg.get('role')}, "
+                        f"content_preview={str(msg.get('content', ''))[:100]}..."
+                    )
+
+        logger.info(
+            f"[GROUP_CHAT_HISTORY] task_id={task_id}, "
+            f"final_history_count={len(history)}, "
+            f"history_roles=[{', '.join([m.get('role', 'unknown') for m in history])}]"
+        )
+        return history
+
+    def _build_history_message(
+        self,
+        db,
+        subtask,
+        sender_username: str | None,
+        attachment_service,
+    ) -> dict[str, Any] | None:
+        """Build a single history message from a subtask."""
+        from app.models.subtask import SubtaskRole
+
+        if subtask.role == SubtaskRole.USER:
+            return self._build_user_message(
+                db, subtask, sender_username, attachment_service
+            )
+        elif subtask.role == SubtaskRole.ASSISTANT:
+            return self._build_assistant_message(subtask)
+        return None
+
+    def _build_user_message(
+        self,
+        db,
+        subtask,
+        sender_username: str | None,
+        attachment_service,
+    ) -> dict[str, Any]:
+        """Build a user message with optional attachments."""
+        from app.models.subtask_attachment import AttachmentStatus, SubtaskAttachment
+
+        # Build text content with username prefix
+        text_content = subtask.prompt or ""
+        if sender_username:
+            text_content = f"User[{sender_username}]: {text_content}"
+
+        # Get attachments
+        attachments = (
+            db.query(SubtaskAttachment)
+            .filter(
+                SubtaskAttachment.subtask_id == subtask.id,
+                SubtaskAttachment.status == AttachmentStatus.READY,
+            )
+            .all()
+        )
+
+        if not attachments:
+            return {"role": "user", "content": text_content}
+
+        # Process attachments
+        vision_parts: list[dict[str, Any]] = []
+        for attachment in attachments:
+            vision_block = attachment_service.build_vision_content_block(attachment)
+            if vision_block:
+                vision_parts.append(vision_block)
+            else:
+                doc_prefix = attachment_service.build_document_text_prefix(attachment)
+                if doc_prefix:
+                    text_content = f"{doc_prefix}{text_content}"
+
+        # Build final content
+        if vision_parts:
+            return {
+                "role": "user",
+                "content": [{"type": "text", "text": text_content}, *vision_parts],
+            }
+        return {"role": "user", "content": text_content}
+
+    def _build_assistant_message(self, subtask) -> dict[str, Any] | None:
+        """Build an assistant message from subtask result."""
+        if not subtask.result or not isinstance(subtask.result, dict):
+            return None
+        content = subtask.result.get("value", "")
+        return {"role": "assistant", "content": content} if content else None
+
+    def _truncate_group_chat_history(
+        self, history: list[dict[str, str]], task_id: int
+    ) -> list[dict[str, str]]:
+        """
+        Truncate chat history for group chat mode.
+
+        In group chat mode, AI-bot sees:
+        - First N messages (for context about the conversation start)
+        - Last M messages (for recent context)
+        - No duplicate messages
+
+        If total messages < N + M, all messages are kept.
+
+        Args:
+            history: Full chat history
+            task_id: Task ID for logging
+
+        Returns:
+            Truncated history list
+        """
+        first_count = settings.GROUP_CHAT_HISTORY_FIRST_MESSAGES
+        last_count = settings.GROUP_CHAT_HISTORY_LAST_MESSAGES
+        total_count = len(history)
+
+        # If total messages <= first + last, keep all messages
+        if total_count <= first_count + last_count:
+            return history
+
+        # Get first N messages and last M messages
+        first_messages = history[:first_count]
+        last_messages = history[-last_count:]
+
+        # Combine without duplicates (in case of overlap, which shouldn't happen
+        # given the check above, but we handle it for safety)
+        truncated_history = first_messages + last_messages
+
+        logger.info(
+            f"Group chat mode: truncated history for task {task_id} from {total_count} "
+            f"to {len(truncated_history)} messages (first {first_count} + last {last_count})"
+        )
+
+        return truncated_history
+
+    async def chat_completion(
+        self,
+        message: str,
+        model_config: dict[str, Any],
+        system_prompt: str = "",
+    ) -> str:
+        """
+        Non-streaming chat completion for simple LLM calls.
+
+        Args:
+            message: User message
+            model_config: Model configuration dict
+            system_prompt: System prompt for the conversation
+
+        Returns:
+            The LLM response as a string
+        """
+        # Build messages
+        messages = message_builder.build_messages(
+            history=[],
+            current_message=message,
+            system_prompt=system_prompt,
+        )
+
+        # Get provider
+        client = await get_http_client()
+        provider = get_provider(model_config, client)
+        if not provider:
+            raise ValueError("Failed to create provider from model config")
+
+        # Collect all content from streaming response
+        cancel_event = asyncio.Event()
+        accumulated_content = ""
+
+        try:
+            async for chunk in provider.stream_chat(messages, cancel_event):
+                if chunk.type == ChunkType.CONTENT and chunk.content:
+                    accumulated_content += chunk.content
+                elif chunk.type == ChunkType.ERROR:
+                    raise ValueError(chunk.error or "Unknown error from LLM")
+        except Exception as e:
+            logger.error(f"Chat completion error: {e}")
+            raise
+
+        return accumulated_content
 
 
 # Global chat service instance
