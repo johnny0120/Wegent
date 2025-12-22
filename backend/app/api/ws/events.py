@@ -74,6 +74,10 @@ class ChatSendPayload(BaseModel):
     title: Optional[str] = Field(None, description="Custom title for new tasks")
     attachment_id: Optional[int] = Field(None, description="Optional attachment ID")
     enable_web_search: bool = Field(False, description="Enable web search")
+    search_engine: Optional[str] = Field(None, description="Search engine to use")
+    enable_clarification: bool = Field(
+        False, description="Enable clarification mode for smart follow-up questions"
+    )
     force_override_bot_model: Optional[str] = Field(
         None, description="Override model name"
     )
@@ -100,6 +104,9 @@ class ChatCancelPayload(BaseModel):
     subtask_id: int = Field(..., description="Subtask ID to cancel")
     partial_content: Optional[str] = Field(
         None, description="Partial content received so far"
+    )
+    shell_type: Optional[str] = Field(
+        None, description="Shell type of the bot (e.g., 'Chat', 'ClaudeCode', 'Agno')"
     )
 
 
@@ -178,6 +185,9 @@ class ChatMessagePayload(BaseModel):
 
     subtask_id: int
     task_id: int
+    message_id: int = Field(
+        ..., description="Message ID for ordering (primary sort key)"
+    )
     role: str
     content: str
     sender: Dict[str, Any] = Field(default_factory=dict)
