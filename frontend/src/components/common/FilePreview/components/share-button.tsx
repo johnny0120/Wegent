@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dropdown'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/hooks/useTranslation'
-import { createAttachmentShareLink } from '@/apis/attachments'
+import { createAttachmentShareLink, type PublicShareLinkResponse } from '@/apis/attachments'
 
 interface ExpiryOption {
   days: number
@@ -35,6 +35,24 @@ interface ShareButtonProps {
   size?: 'sm' | 'default' | 'icon'
   /** Additional CSS classes */
   className?: string
+}
+
+// Helper: Create share link with error handling
+async function createShareLink(
+  attachmentId: number,
+  days: number
+): Promise<PublicShareLinkResponse> {
+  return createAttachmentShareLink(attachmentId, days)
+}
+
+// Helper: Copy to clipboard with fallback
+async function copyToClipboard(shareUrl: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(shareUrl)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function ShareButton({
@@ -75,12 +93,10 @@ export function ShareButton({
     setIsSharing(true)
     setOpen(false)
 
-    let shareUrl: string
-
     // Step 1: Create share link
+    let response: PublicShareLinkResponse
     try {
-      const response = await createAttachmentShareLink(attachmentId, days)
-      shareUrl = response.share_url
+      response = await createShareLink(attachmentId, days)
     } catch (err) {
       console.error('Failed to create share link:', err)
       setIsSharing(false)
@@ -93,25 +109,21 @@ export function ShareButton({
     }
 
     // Step 2: Copy to clipboard
-    try {
-      await navigator.clipboard.writeText(shareUrl)
-    } catch (err) {
-      console.error('Failed to copy to clipboard:', err)
+    const copied = await copyToClipboard(response.share_url)
+    if (!copied) {
       setIsSharing(false)
-      // Show URL in toast for manual copy as fallback
       toast({
         variant: 'destructive',
         title: t('attachment.share.copy_failed_title'),
-        description: shareUrl,
+        description: response.share_url,
       })
       return
     }
 
     setShared(true)
 
-    // Calculate expiry date for display
-    const expiryDate = new Date()
-    expiryDate.setDate(expiryDate.getDate() + days)
+    // Step 3: Show success toast with server-provided expiry
+    const expiryDate = new Date(response.expires_at)
     const formattedDate = expiryDate.toLocaleDateString(i18n.language, {
       year: 'numeric',
       month: 'short',
@@ -125,12 +137,10 @@ export function ShareButton({
       }),
     })
 
-    // Clear any existing timeout before setting new one
+    // Step 4: Set expiry timer
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
     }
-
-    // Reset copied state after 2 seconds
     timeoutRef.current = window.setTimeout(() => setShared(false), 2000)
 
     setIsSharing(false)
