@@ -1324,6 +1324,7 @@
     "upload_tooltip": "Supported file types: Documents (PDF, Word, PPT, Excel), Images, HTML, Markdown, Code files and text files\nHTML and Markdown files will be rendered with preview\nMax file size: {{size}} MB",
     "share": {
       "link_copied_title": "Share Link Copied",
+      "copy_failed_title": "Failed to Copy to Clipboard",
       "link_copied_description": "Link valid for 7 days. Paste and send to others.",
       "link_copied_with_expiry": "Link valid until {{date}}. Paste and send to others.",
       "generate_failed_title": "Failed to Generate Share Link",

@@ -4,7 +4,7 @@
 
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Share2, Check, Loader2, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -49,6 +49,16 @@ export function ShareButton({
   const [isSharing, setIsSharing] = useState(false)
   const [shared, setShared] = useState(false)
   const [open, setOpen] = useState(false)
+  const timeoutRef = useRef<number | null>(null)
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [])
 
   // Expiry options - supporting up to 3650 days (10 years) for long-term access
   const expiryOptions: ExpiryOption[] = [
@@ -64,42 +74,69 @@ export function ShareButton({
 
     setIsSharing(true)
     setOpen(false)
+
+    let shareUrl: string
+
+    // Step 1: Create share link
     try {
       const response = await createAttachmentShareLink(attachmentId, days)
-      await navigator.clipboard.writeText(response.share_url)
-      setShared(true)
-
-      // Calculate expiry date for display
-      const expiryDate = new Date()
-      expiryDate.setDate(expiryDate.getDate() + days)
-      const formattedDate = expiryDate.toLocaleDateString(
-        i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US',
-        { year: 'numeric', month: 'short', day: 'numeric' }
-      )
-
-      toast({
-        title: t('attachment.share.link_copied_title'),
-        description: t('attachment.share.link_copied_with_expiry', {
-          date: formattedDate,
-          days:
-            days >= 3650
-              ? t('attachment.share.expiry.10years')
-              : `${days}${t('attachment.share.expiry.days')}`,
-        }),
-      })
-
-      // Reset copied state after 2 seconds
-      setTimeout(() => setShared(false), 2000)
+      shareUrl = response.share_url
     } catch (err) {
       console.error('Failed to create share link:', err)
+      setIsSharing(false)
       toast({
         variant: 'destructive',
         title: t('attachment.share.generate_failed_title'),
         description: err instanceof Error ? err.message : t('attachment.share.retry'),
       })
-    } finally {
-      setIsSharing(false)
+      return
     }
+
+    // Step 2: Copy to clipboard
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err)
+      setIsSharing(false)
+      // Show URL in toast for manual copy as fallback
+      toast({
+        variant: 'destructive',
+        title: t('attachment.share.copy_failed_title'),
+        description: shareUrl,
+      })
+      return
+    }
+
+    setShared(true)
+
+    // Calculate expiry date for display
+    const expiryDate = new Date()
+    expiryDate.setDate(expiryDate.getDate() + days)
+    const formattedDate = expiryDate.toLocaleDateString(
+      i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US',
+      { year: 'numeric', month: 'short', day: 'numeric' }
+    )
+
+    toast({
+      title: t('attachment.share.link_copied_title'),
+      description: t('attachment.share.link_copied_with_expiry', {
+        date: formattedDate,
+        days:
+          days >= 3650
+            ? t('attachment.share.expiry.10years')
+            : `${days}${t('attachment.share.expiry.days')}`,
+      }),
+    })
+
+    // Clear any existing timeout before setting new one
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+
+    // Reset copied state after 2 seconds
+    timeoutRef.current = window.setTimeout(() => setShared(false), 2000)
+
+    setIsSharing(false)
   }
 
   if (!canShare) {

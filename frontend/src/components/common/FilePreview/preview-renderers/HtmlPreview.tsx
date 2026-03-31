@@ -4,7 +4,7 @@
 
 'use client'
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { TextPreview } from './TextPreview'
@@ -38,6 +38,12 @@ export function HtmlPreview({
   }
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  // Reset loading state when content changes
+  useEffect(() => {
+    setIsLoading(true)
+    setHasError(false)
+  }, [content])
 
   const handleIframeLoad = () => setIsLoading(false)
   const handleIframeError = () => {
