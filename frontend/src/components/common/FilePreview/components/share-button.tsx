@@ -112,19 +112,16 @@ export function ShareButton({
     // Calculate expiry date for display
     const expiryDate = new Date()
     expiryDate.setDate(expiryDate.getDate() + days)
-    const formattedDate = expiryDate.toLocaleDateString(
-      i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US',
-      { year: 'numeric', month: 'short', day: 'numeric' }
-    )
+    const formattedDate = expiryDate.toLocaleDateString(i18n.language, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
 
     toast({
       title: t('attachment.share.link_copied_title'),
       description: t('attachment.share.link_copied_with_expiry', {
         date: formattedDate,
-        days:
-          days >= 3650
-            ? t('attachment.share.expiry.10years')
-            : `${days}${t('attachment.share.expiry.days')}`,
       }),
     })
 
