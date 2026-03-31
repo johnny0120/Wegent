@@ -807,7 +807,7 @@ def _verify_public_share_token(token: str) -> dict:
 @router.post("/{attachment_id}/public-share", response_model=PublicShareLinkResponse)
 async def create_public_share_link(
     attachment_id: int,
-    expires_in_days: int = Query(default=7, ge=1, le=30),
+    expires_in_days: int = Query(default=7, ge=1, le=3650),
     db: Session = Depends(get_db),
     current_user: User = Depends(security.get_current_user),
 ):
@@ -822,7 +822,7 @@ async def create_public_share_link(
 
     Args:
         attachment_id: ID of the attachment to share
-        expires_in_days: Link expiration time in days (1-30, default: 7)
+        expires_in_days: Link expiration time in days (1-3650, default: 7)
 
     Returns:
         Public share URL and expiration time
