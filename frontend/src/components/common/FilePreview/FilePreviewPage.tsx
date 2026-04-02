@@ -194,37 +194,42 @@ export function FilePreviewPage({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0 overflow-x-auto">
-          {/* HTML Preview Controls - only show for HTML files */}
+          {/* HTML Preview Controls - Segmented toggle for preview/source mode */}
           {isHtml && (
-            <div className="flex items-center bg-muted/50 rounded-md p-0.5">
-              <Button
-                variant="ghost"
-                size="sm"
+            <div className="relative flex items-center bg-muted/50 rounded-lg p-1">
+              {/* Sliding background indicator */}
+              <div
+                className="absolute h-[calc(100%-8px)] bg-primary rounded-md shadow-sm will-change-transform"
+                style={{
+                  width: 'calc(50% - 4px)',
+                  left: htmlIsSourceMode ? 'calc(50% + 2px)' : '4px',
+                  transition: 'left 200ms ease-out',
+                }}
+              />
+              {/* Preview button */}
+              <button
+                type="button"
                 onClick={() => setHtmlIsSourceMode(false)}
-                className={`rounded-sm border-0 h-9 px-2 sm:px-3 text-sm font-medium gap-1.5 ${
-                  !htmlIsSourceMode
-                    ? 'bg-primary text-white shadow-sm hover:bg-primary'
-                    : 'bg-white text-text-primary hover:bg-white'
+                className={`relative z-10 flex items-center gap-1.5 h-8 px-3 text-sm font-medium rounded-md transition-colors duration-200 ${
+                  !htmlIsSourceMode ? 'text-white' : 'text-text-primary hover:text-text-primary'
                 }`}
                 title={t('actions.preview')}
               >
                 <Eye className="w-4 h-4" />
                 <span className="hidden sm:inline">{t('actions.preview')}</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
+              </button>
+              {/* Source button */}
+              <button
+                type="button"
                 onClick={() => setHtmlIsSourceMode(true)}
-                className={`rounded-sm border-0 h-9 px-2 sm:px-3 text-sm font-medium gap-1.5 ${
-                  htmlIsSourceMode
-                    ? 'bg-primary text-white shadow-sm hover:bg-primary'
-                    : 'bg-white text-text-primary hover:bg-white'
+                className={`relative z-10 flex items-center gap-1.5 h-8 px-3 text-sm font-medium rounded-md transition-colors duration-200 ${
+                  htmlIsSourceMode ? 'text-white' : 'text-text-primary hover:text-text-primary'
                 }`}
                 title={t('attachment.html.source_mode')}
               >
                 <Code className="w-4 h-4" />
                 <span className="hidden sm:inline">{t('attachment.html.source_mode')}</span>
-              </Button>
+              </button>
             </div>
           )}
           {/* Share button - only show if user can share (owner only) */}
