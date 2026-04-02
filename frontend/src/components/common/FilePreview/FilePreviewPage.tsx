@@ -261,8 +261,13 @@ export function FilePreviewPage({
         </div>
       </header>
 
-      {/* Spacer for mobile absolute header - matches header height (py-2 + h-9) */}
-      {isMobile && <div className="h-[52px] flex-shrink-0" />}
+      {/* Spacer for mobile absolute header - collapses when header is hidden */}
+      {isMobile && (
+        <div
+          className="flex-shrink-0 transition-[height] duration-250 ease-out"
+          style={{ height: isHeaderVisible ? 52 : 0 }}
+        />
+      )}
 
       {/* Preview Area */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
