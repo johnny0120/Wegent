@@ -51,6 +51,7 @@ export function createDesktopScenario({ resultDir }) {
         name: 'dsh-owner-capture-bridge',
         displayName: 'DSH owner capture bridge',
         description: 'Desktop E2E fixture for scoped Smart App capture',
+        template: 'web',
       })
 
       try {

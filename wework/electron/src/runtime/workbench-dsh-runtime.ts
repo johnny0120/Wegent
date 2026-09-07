@@ -135,20 +135,21 @@ export async function prepareWorkbenchDshLaunch(
   const corePluginsRoot = options.environment.WEWORK_CORE_PLUGIN_ROOT?.trim()
   const resolvedHostPluginPath = (await isDirectory(hostPluginPath))
     ? hostPluginPath
-    : corePluginsRoot
+    : corePluginsRoot && (await isDirectory(join(corePluginsRoot, 'wework-electron-host')))
       ? join(corePluginsRoot, 'wework-electron-host')
       : null
-  if (resolvedHostPluginPath && (await isDirectory(resolvedHostPluginPath))) {
-    await installPlugins(
-      runtime,
-      dshHome,
-      options.manifest.entry.profile,
-      [resolvedHostPluginPath],
-      nodeCommand,
-      environment,
-      run
-    )
+  if (!resolvedHostPluginPath) {
+    throw new Error('Workbench Smart App runtime requires the trusted wework-electron-host plugin')
   }
+  await installPlugins(
+    runtime,
+    dshHome,
+    options.manifest.entry.profile,
+    [resolvedHostPluginPath],
+    nodeCommand,
+    environment,
+    run
+  )
   await installPluginSpecs(
     runtime,
     dshHome,

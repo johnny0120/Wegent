@@ -45,7 +45,8 @@ a local web region inside a Smart App.
 
 Wework does not bypass target-site browser security. Embedded login requires the target site to:
 
-1. allow framing through `X-Frame-Options` and CSP `frame-ancestors`;
+1. allow framing via CSP `frame-ancestors` (do not rely on `X-Frame-Options` — it cannot
+   express a cross-origin allowlist, and its `ALLOW-FROM` directive is obsolete);
 2. complete authentication inside the current frame instead of forcing `top` or `parent` navigation;
 3. issue cookies that are accepted and sent in the embedded context, for example with appropriate
    `SameSite=None; Secure` or partitioned-cookie attributes; and
@@ -74,8 +75,8 @@ back to `getDisplayMedia`, and environments with neither capability keep the man
 Opening dialogs, terminals, approval UI, or another tab must not change the iframe's display, source,
 or lifecycle. Capturing only adds an image attachment.
 
-Automated tests cover owner scoping, invalid bounds, hidden owners, PNG-to-File conversion, persistent
+Automated tests should cover owner scoping, invalid bounds, hidden owners, PNG-to-File conversion, persistent
 iframe rendering, browser fallback, and repeated capture. The `dsh-owner-capture` desktop checkpoint
-starts a real Smart App from the UI and invokes its scoped capability. Real Electron verification
+starts an actual Smart App from the UI and invokes its scoped capability. Real Electron verification
 must use an isolated `scripts/ai-verify.mjs` session and cover login, iframe interaction, dialogs,
 two consecutive captures, tab switching, and cleanup.

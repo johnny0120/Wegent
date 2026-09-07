@@ -48,7 +48,8 @@ iframe DOMRect
 
 Wework 不绕过目标站点的浏览器安全策略。iframe 登录需要目标站点同时满足：
 
-1. 文档响应没有用 `X-Frame-Options` 或 CSP `frame-ancestors` 拒绝嵌入；
+1. 允许通过 CSP `frame-ancestors` 嵌入（不要依赖 `X-Frame-Options`——它无法表达跨域白名单，
+   其 `ALLOW-FROM` 指令已废弃）；
 2. 登录完成后在当前 frame 导航，不强制修改 `top` 或 `parent`；
 3. 登录 Cookie 在嵌入上下文可被接受和发送，例如使用合适的 `SameSite=None; Secure`
    或分区 Cookie；
