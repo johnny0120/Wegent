@@ -57,6 +57,7 @@ core_segments=(
   browser-annotation-core
   browser-annotation-anchors
   browser-annotation-design
+  dsh-owner-capture
 )
 plugin_segments=(
   core-dsh-ui-plugin-composition
@@ -141,6 +142,7 @@ core_shards=(
   local-harness,running-conversation-history,native-window-chrome
   codex-notification-isolation,core-dsh-plugin-management,plugin-development,workbench-mode,executor-stream-recovery,transcript-sync
   model-routing,computer-use
+  dsh-owner-capture
 )
 
 validate_core_shards() {
