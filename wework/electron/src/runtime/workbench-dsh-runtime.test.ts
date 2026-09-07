@@ -56,9 +56,11 @@ describe('workbench DSH runtime', () => {
     const packageRoot = join(runtimeRoot, 'node_modules', '@deepseek-ai', 'dsh')
     const appRoot = join(root.path, 'smart-app', 'profile-bundle')
     const managedNode = join(root.path, 'managed-node', 'bin', 'node')
+    const hostPlugin = join(runtimeRoot, 'plugins', 'wework-electron-host')
     const fingerprint = 'a'.repeat(64)
     await mkdir(join(packageRoot, 'lib'), { recursive: true })
     await mkdir(appRoot, { recursive: true })
+    await mkdir(hostPlugin, { recursive: true })
     await writeFile(
       join(runtimeRoot, 'runtime.json'),
       JSON.stringify({
@@ -117,6 +119,11 @@ describe('workbench DSH runtime', () => {
           PATH: launch.environment.PATH,
         }),
       })
+    )
+    expect(run).toHaveBeenCalledWith(
+      managedNode,
+      expect.arrayContaining(['plugin', 'add', '--ignore-scripts', `file:${hostPlugin}`]),
+      expect.any(Object)
     )
     await root.remove()
   })

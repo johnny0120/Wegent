@@ -52,6 +52,7 @@ import { RotatingLog } from '../runtime/rotating-log.js'
 export { captureWebContentsDataUrl } from './web-contents-capture.js'
 
 export const WEWORK_APP_PRINCIPAL = '@wegent/dsh-app-wework'
+export const WEWORK_WORKBENCH_PRINCIPAL = '@wegent/dsh-workbench'
 
 export function e2eOpenDialogOverride(
   environment: NodeJS.ProcessEnv = process.env
@@ -924,6 +925,40 @@ export function registerBrowserAnnotationCapabilities(
   )
 }
 
+const WORKBENCH_CAPABILITIES = ['dshCapture.capabilities', 'dshCapture.ownerRect'] as const
+
+export function createWorkbenchCapabilityRouter(
+  browser: Pick<EmbeddedBrowserManager, 'capture' | 'has' | 'state'> | null,
+  ownerLabel: string | null
+): HostCapabilityRouter {
+  const router = new HostCapabilityRouter()
+  router.register('dshCapture.capabilities', () => ({
+    available: Boolean(browser && ownerLabel && browser.has(ownerLabel)),
+  }))
+  router.register('dshCapture.ownerRect', async params => {
+    if (!browser || !ownerLabel || !browser.has(ownerLabel)) {
+      throw unavailableOwnerCapture()
+    }
+    if (!browser.state(ownerLabel).visible) {
+      throw new HostCapabilityError(
+        'owner_view_hidden',
+        'The Smart App view is not visible for capture'
+      )
+    }
+    const rect = ownerCaptureRectParam(params)
+    return { dataUrl: await browser.capture(ownerLabel, rect) }
+  })
+  router.grant(WEWORK_WORKBENCH_PRINCIPAL, WORKBENCH_CAPABILITIES)
+  return router
+}
+
+function unavailableOwnerCapture(): HostCapabilityError {
+  return new HostCapabilityError(
+    'capability_unavailable',
+    'Smart App owner-view capture is unavailable in this environment'
+  )
+}
+
 interface CpuTimeSample {
   idle: number
   total: number
@@ -1323,6 +1358,26 @@ function browserBoundsParam(params: Record<string, unknown>): BrowserBounds {
     width: numberParam(record, 'width'),
     height: numberParam(record, 'height'),
   }
+}
+
+function ownerCaptureRectParam(params: Record<string, unknown>): BrowserBounds {
+  const input = {
+    x: numberParam(params, 'x'),
+    y: numberParam(params, 'y'),
+    width: numberParam(params, 'width'),
+    height: numberParam(params, 'height'),
+  }
+  if (input.x < 0 || input.y < 0 || input.width < 1 || input.height < 1) {
+    invalidParam('capture rect')
+  }
+  const x = Math.floor(input.x)
+  const y = Math.floor(input.y)
+  const width = Math.ceil(input.x + input.width) - x
+  const height = Math.ceil(input.y + input.height) - y
+  if (width > 7680 || height > 4320 || width * height > 33_177_600) {
+    invalidParam('capture rect')
+  }
+  return { x, y, width, height }
 }
 
 function systemDragPayload(params: Record<string, unknown>): {

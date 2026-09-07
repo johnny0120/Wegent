@@ -126,6 +126,24 @@ export async function prepareWorkbenchDshLaunch(
     environment,
     run
   )
+  const hostPluginPath = join(runtime.pluginsRoot, 'wework-electron-host')
+  const corePluginsRoot = options.environment.WEWORK_CORE_PLUGIN_ROOT?.trim()
+  const resolvedHostPluginPath = (await isDirectory(hostPluginPath))
+    ? hostPluginPath
+    : corePluginsRoot
+      ? join(corePluginsRoot, 'wework-electron-host')
+      : null
+  if (resolvedHostPluginPath && (await isDirectory(resolvedHostPluginPath))) {
+    await installPlugins(
+      runtime,
+      dshHome,
+      options.manifest.entry.profile,
+      [resolvedHostPluginPath],
+      nodeCommand,
+      environment,
+      run
+    )
+  }
   await installPluginSpecs(
     runtime,
     dshHome,
