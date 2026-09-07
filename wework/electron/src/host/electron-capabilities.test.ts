@@ -9,9 +9,11 @@ import type {
 } from './capability-router.js'
 import {
   captureWebContentsDataUrl,
+  coreGrantedCapabilities,
   cpuLoadRatioBetween,
   e2eOpenDialogOverride,
   createWorkbenchCapabilityRouter,
+  WEWORK_APP_PRINCIPAL,
   WEWORK_WORKBENCH_PRINCIPAL,
   registerAppUpdateCapabilities,
   registerBrowserHistoryCapabilities,
@@ -662,7 +664,7 @@ describe('createWorkbenchCapabilityRouter', () => {
 
   test('denies capabilities for the core principal', async () => {
     const router = createWorkbenchCapabilityRouter(null, null)
-    expect(router.describe('@wegent/dsh-app-wework')).toEqual([])
+    expect(router.describe(WEWORK_APP_PRINCIPAL)).toEqual([])
   })
 
   test('denies unknown capabilities for the workbench principal', async () => {
@@ -670,5 +672,36 @@ describe('createWorkbenchCapabilityRouter', () => {
     await expect(
       router.invoke(WEWORK_WORKBENCH_PRINCIPAL, 'browser.open', {})
     ).rejects.toMatchObject({ code: 'capability_denied' })
+  })
+
+  test('keeps owner-view capture out of the core principal grant', () => {
+    const granted = coreGrantedCapabilities()
+    expect(granted).not.toContain('dshCapture.capabilities')
+    expect(granted).not.toContain('dshCapture.ownerRect')
+    expect(granted).toContain('browser.open')
+  })
+
+  test('reports capability available only while the scoped owner is visible', async () => {
+    const hidden = createWorkbenchCapabilityRouter(
+      {
+        has: vi.fn(() => true),
+        state: vi.fn(() => ({ visible: false })),
+      } as never,
+      'smart-app:test'
+    )
+    await expect(
+      hidden.invoke(WEWORK_WORKBENCH_PRINCIPAL, 'dshCapture.capabilities', {})
+    ).resolves.toEqual({ available: false })
+
+    const visible = createWorkbenchCapabilityRouter(
+      {
+        has: vi.fn(() => true),
+        state: vi.fn(() => ({ visible: true })),
+      } as never,
+      'smart-app:test'
+    )
+    await expect(
+      visible.invoke(WEWORK_WORKBENCH_PRINCIPAL, 'dshCapture.capabilities', {})
+    ).resolves.toEqual({ available: true })
   })
 })

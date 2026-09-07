@@ -5,14 +5,18 @@ import { join } from 'node:path'
 const HOST_INVOKE_PATH = '/wework/electron-host/v1/invoke'
 const MODEL_LABEL = 'Desktop E2E Chat'
 
-async function invoke(origin, capability, params = {}) {
+async function postInvoke(origin, capability, params) {
   const endpoint = `${origin}${HOST_INVOKE_PATH}`
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json' },
     body: JSON.stringify({ capability, params }),
   })
-  const payload = await response.json()
+  return { response, payload: await response.json() }
+}
+
+async function invoke(origin, capability, params = {}) {
+  const { response, payload } = await postInvoke(origin, capability, params)
   assert.equal(
     response.ok,
     true,
@@ -23,12 +27,7 @@ async function invoke(origin, capability, params = {}) {
 }
 
 async function invokeFailure(origin, capability, params = {}) {
-  const response = await fetch(`${origin}${HOST_INVOKE_PATH}`, {
-    method: 'POST',
-    headers: { accept: 'application/json', 'content-type': 'application/json' },
-    body: JSON.stringify({ capability, params }),
-  })
-  const payload = await response.json()
+  const { response, payload } = await postInvoke(origin, capability, params)
   assert.equal(response.ok, false, `${capability} unexpectedly returned HTTP success`)
   assert.equal(payload.ok, false, `${capability} unexpectedly succeeded`)
   return payload.error
