@@ -185,6 +185,69 @@ describe('workbench DSH runtime', () => {
     await root.remove()
   })
 
+  test('skips the host bridge plugin for runtimes without an Electron host pipe', async () => {
+    const root = await temporaryDirectory('workbench-dsh-hostless-')
+    const runtimeRoot = join(root.path, 'runtime')
+    const packageRoot = join(runtimeRoot, 'node_modules', '@deepseek-ai', 'dsh')
+    const appRoot = join(root.path, 'smart-app', 'profile-bundle')
+    const managedNode = join(root.path, 'managed-node', 'bin', 'node')
+    await mkdir(join(packageRoot, 'lib'), { recursive: true })
+    await mkdir(appRoot, { recursive: true })
+    await writeFile(
+      join(runtimeRoot, 'runtime.json'),
+      JSON.stringify({
+        dshVersion: WORKBENCH_DSH_VERSION,
+        role: 'workbench',
+        sourceFingerprint: 'a'.repeat(64),
+      })
+    )
+    await writeFile(
+      join(packageRoot, 'package.json'),
+      JSON.stringify({ version: WORKBENCH_DSH_VERSION })
+    )
+    await writeFile(join(packageRoot, 'lib', 'bin.js'), '')
+    await writeFile(join(appRoot, 'package.json'), JSON.stringify({ name: 'profile-bundle' }))
+    const run = vi.fn().mockResolvedValue(undefined)
+
+    const launch = await prepareWorkbenchDshLaunch({
+      runtimeRoot,
+      dataDirectory: join(root.path, 'data'),
+      installationId: 'test-app',
+      packagePath: join(root.path, 'smart-app'),
+      manifest: {
+        name: 'test-app',
+        displayName: 'Test App',
+        version: '1.0.0',
+        type: 'deepseek-harness-plugin-bundle',
+        description: 'Test app',
+        entry: {
+          installPackage: 'profile-bundle',
+          profile: 'web',
+        },
+        requirements: {
+          dsh: WORKBENCH_DSH_VERSION,
+          node: '*',
+        },
+      },
+      environment: {
+        PATH: '/usr/bin',
+        WEWORK_NODE_PATH: managedNode,
+        WEWORK_NODE_RUNTIME_KIND: 'electron',
+      },
+      port: 3080,
+      includeElectronHostBridge: false,
+      run,
+    })
+
+    expect(launch.environment).toBeDefined()
+    expect(
+      run.mock.calls.some(([, args]) =>
+        args.some(argument => String(argument).includes('wework-electron-host'))
+      )
+    ).toBe(false)
+    await root.remove()
+  })
+
   test('resolves project scripts through the managed Node and runtime-owned pnpm', async () => {
     const root = await temporaryDirectory('workbench-project-command-')
     const runtimeRoot = join(root.path, 'runtime')
